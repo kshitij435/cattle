@@ -1534,21 +1534,24 @@ async function generateELA(sourceDataUrl, quality = 0.9, amplify = 15, maxDim = 
 // over trivial relative differences).
 //
 // ⚠️ HONESTY NOTE (read before trusting this in production): the
-// SUSPICIOUS_Z_THRESHOLD and MIN_ABSOLUTE_DIFF constants below are
-// reasonable starting guesses, NOT calibrated against real data. Exactly
-// like the confidence/IoU thresholds on your YOLO models needed tuning
-// against real measured results before they were trustworthy, this needs
-// the same treatment: run it against a batch of photos you KNOW are
-// genuine and a batch you KNOW are edited, see where false positives/
-// negatives actually fall, and adjust the threshold accordingly. Until
-// that's done, treat "suspicious" as "worth a human double-checking",
-// not as a proven fraud determination.
+// SUSPICIOUS_Z_THRESHOLD and MIN_ABSOLUTE_DIFF constants below started as
+// blind guesses and were revised ONCE against two real test photos (one
+// known-edited marketing graphic, one known-genuine cattle photo, both
+// sourced via WhatsApp). That z=3.2 boundary correctly separated those two
+// (4.13 vs 2.38), but minAbsoluteDiff had to be dropped from 9 to 2.5 --
+// the original value of 9 was silently suppressing a real detection,
+// because WhatsApp's own compression already flattens an image before you
+// even download it, making every recompression pass (genuine or edited)
+// produce smaller raw differences than a fresh, uncompressed photo would.
+// This is still only n=2 -- test against more real known-edited and
+// known-genuine photos (ideally covering live-camera-quality JPEGs too,
+// not just WhatsApp-sourced ones) before treating this as reliable.
 const TAMPER_CHECK_CONFIG = {
   maxDim: 800,        // working resolution -- plenty for this, keeps it fast
   quality: 0.9,        // recompression quality used to generate the diff
   gridSize: 10,         // splits the image into a 10x10 grid of blocks
   suspiciousZThreshold: 3.2,   // how much of a statistical outlier the worst block must be
-  minAbsoluteDiff: 9,           // AND that block's raw diff must clear this floor (0-255 scale)
+  minAbsoluteDiff: 2.5,          // AND that block's raw diff must clear this floor (0-255 scale)
 };
 
 async function computeTamperVerdict(sourceDataUrl){
