@@ -16,7 +16,7 @@
 //   Forgetting to bump it means users keep silently using stale models.
 // =========================================================================
 
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const CACHE_NAME = `cattle-claim-${CACHE_VERSION}`;
 
 // ---- App shell: the local files this app is built from ----
@@ -147,11 +147,18 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url);
 
-  // 1. Page navigations
+  // 1. Page navigations — network-first, and critically bypasses the
+  //    browser's own HTTP cache (not just our SW cache) via {cache:
+  //    'no-store'}. Without this, GitHub Pages' Cache-Control headers can
+  //    make the browser silently reuse a stale HTML response for several
+  //    minutes even though this handler IS trying to fetch fresh — the
+  //    plain `fetch(req)` below was still subject to normal HTTP caching
+  //    rules, which is exactly the kind of stale-reload issue that made
+  //    earlier fixes look like they "didn't take" when they actually had.
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
       try {
-        const fresh = await fetch(req);
+        const fresh = await fetch(req, { cache: 'no-store' });
         const cache = await caches.open(CACHE_NAME);
         cache.put('./index.html', fresh.clone());
         return fresh;

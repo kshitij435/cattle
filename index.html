@@ -2677,7 +2677,7 @@ loadFaceModel();
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js').then((reg) => {
+      navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
         console.log('[app] Service worker registered, scope:', reg.scope);
         reg.addEventListener('updatefound', () => {
           const installing = reg.installing;
