@@ -2841,21 +2841,34 @@ loadFaceModel();
      SERVICE WORKER REGISTRATION — enables offline support.
      Must be served over HTTPS (GitHub Pages is) or localhost — will not
      register over a plain http:// origin, or from file://.
+
+     SELF-UPDATING, so nobody needs to know what "clear site data" means:
+     whenever a new sw.js is detected (which only happens while online --
+     offline, this whole block silently does nothing and the app just
+     keeps running from its existing offline cache, exactly as before),
+     it takes over and reloads the page ONE time automatically to pick up
+     the new version. No manual cache-clearing, no incognito, no
+     force-stopping the browser -- opening the app with a connection at
+     some point is enough for it to catch up on its own.
      =================================================================== -->
 <script>
   if ('serviceWorker' in navigator) {
+    // Fires once a NEW service worker has taken over control of this page
+    // (i.e. an update was found, installed, and activated). Reload once to
+    // pull in the fresh index.html/JS that goes with it -- otherwise the
+    // already-open page would keep running its old in-memory code even
+    // though the worker underneath it just updated, which is exactly the
+    // "why isn't my fix showing up" problem from earlier today.
+    let refreshingAfterUpdate = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshingAfterUpdate) return;   // guard against a reload loop
+      refreshingAfterUpdate = true;
+      window.location.reload();
+    });
+
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
         console.log('[app] Service worker registered, scope:', reg.scope);
-        reg.addEventListener('updatefound', () => {
-          const installing = reg.installing;
-          if (!installing) return;
-          installing.addEventListener('statechange', () => {
-            if (installing.state === 'activated') {
-              console.log('[app] New version cached and ready.');
-            }
-          });
-        });
       }).catch((err) => {
         console.warn('[app] Service worker registration failed (offline support unavailable):', err);
       });
