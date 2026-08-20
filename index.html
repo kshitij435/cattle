@@ -468,6 +468,20 @@ const REFERENCE_PHOTOS = {
 };
 function referenceKeyFor(step){ return step.sided ? `${step.id}_${stepSide[step.id]}` : step.id; }
 
+// Turns a capture's meta.source into the label shown in the details panel.
+// Handles all three cases the app can actually produce: a raw live-camera
+// shot, a raw gallery upload, and a Geotag step's generated composite
+// (which isn't "from" either directly -- it's built FROM one of the two,
+// so it shows that original source in parentheses rather than mislabeling
+// itself as a plain gallery upload, which was the previous bug here).
+function sourceLabelFor(meta){
+  if(meta.source === 'geotag-generated'){
+    const origLabel = meta.originalSource === 'camera' ? 'Live Camera' : 'Gallery Upload';
+    return `Geotag Overlay (from ${origLabel})`;
+  }
+  return meta.source === 'camera' ? 'Live Camera' : 'Gallery Upload';
+}
+
 const BORDERS = {
   left_flank:        { label: "Left Flank",  path: "M940.0,336.0 L925.8,315.1 L891.4,309.0 L879.3,294.2 L801.7,273.3 L669.4,269.9 L570.2,290.8 L485.2,329.9 L417.0,343.4 L398.8,342.8 L367.1,307.0 L344.8,297.5 L323.2,309.0 L274.6,313.1 L75.5,313.1 L61.3,333.3 L60.0,375.8 L64.0,388.7 L74.2,395.4 L116.7,406.9 L196.3,454.8 L248.3,471.7 L359.0,491.2 L398.8,511.5 L423.1,542.5 L462.2,574.2 L471.0,606.6 L473.0,716.0 L478.4,722.7 L514.2,730.1 L524.3,724.0 L524.3,640.4 L541.8,588.4 L647.1,589.8 L801.0,556.0 L819.9,556.0 L824.6,562.8 L824.6,611.3 L808.4,664.0 L809.1,703.1 L862.4,711.2 L862.4,597.2 L892.1,553.3 L899.5,515.5 L917.1,489.2 Z" },
   right_flank:       { label: "Right Flank", path: "M60.0,335.3 L82.9,489.2 L100.5,515.5 L107.9,553.3 L137.6,597.2 L137.6,711.2 L190.9,703.1 L191.6,664.0 L175.4,611.3 L175.4,562.8 L180.1,556.0 L199.0,556.0 L347.5,589.1 L458.2,588.4 L475.7,640.4 L475.7,724.7 L485.8,730.1 L526.3,717.3 L529.0,606.6 L537.8,574.2 L571.5,547.9 L601.2,511.5 L643.7,490.6 L751.7,471.7 L813.8,450.7 L882.0,407.5 L933.9,390.7 L940.0,375.8 L938.7,332.6 L924.5,313.1 L725.4,313.1 L676.8,309.0 L654.5,297.5 L632.9,307.0 L601.2,342.8 L583.7,343.4 L514.8,329.9 L429.8,290.8 L330.6,269.9 L201.0,272.6 L120.7,294.2 L108.6,309.0 L72.8,315.8 Z" },
@@ -947,7 +961,7 @@ function showCaptured(cap){
   document.getElementById('metaPanel').classList.add('show');
   document.getElementById('mpTime').textContent = cap.meta.timeLabel;
   document.getElementById('mpSide').textContent = cap.side ? (cap.side==='left' ? 'Left' : 'Right') : '—';
-  document.getElementById('mpSource').textContent = cap.meta.source === 'camera' ? 'Live Camera' : 'Gallery Upload';
+  document.getElementById('mpSource').textContent = sourceLabelFor(cap.meta);
   document.getElementById('mpRes').textContent = cap.meta.resolution || '—';
   document.getElementById('mpDevice').textContent = shortDevice(cap.meta.device);
   const mpGps = document.getElementById('mpGps');
@@ -1690,7 +1704,12 @@ shutterBtn.addEventListener('click', () => {
           // Carries forward the ORIGINAL Flank photo's location/time, since
           // this image documents where/when THAT photo was taken -- not
           // the separate moment this geotag overlay was generated.
-          meta: { ...sourceCap.meta, source: 'geotag-generated' }
+          // originalSource preserves whether that underlying photo came
+          // from the live camera or a gallery upload, since 'source' itself
+          // gets overwritten below to mark this as a generated composite --
+          // without preserving it separately, the details panel had no way
+          // to tell the two apart and always displayed "Gallery Upload".
+          meta: { ...sourceCap.meta, source: 'geotag-generated', originalSource: sourceCap.meta.source }
         };
         captures[key] = cap;
         showCaptured(cap);

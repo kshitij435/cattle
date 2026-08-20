@@ -16,7 +16,7 @@
 //   Forgetting to bump it means users keep silently using stale models.
 // =========================================================================
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAME = `cattle-claim-${CACHE_VERSION}`;
 
 // ---- App shell: the local files this app is built from ----
