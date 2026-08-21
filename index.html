@@ -441,7 +441,18 @@
       <button class="btn-round ref-btn" id="refBtn" title="See reference photo" style="display:none;">
         <img id="refBtnThumb" alt="Reference">
       </button>
-      <input type="file" id="fileInput" accept="image/*" style="display:none;">
+      <!-- No `accept` restriction here on purpose. Chrome's streamlined
+           Android Photo Picker (the "Photos"-style grid) only activates
+           when accept is restricted purely to image/video MIME types --
+           and that picker can hand over a re-processed copy of the photo
+           for privacy reasons, silently stripping EXIF/GPS before this app
+           ever sees the file, even when the real file on disk still has
+           it. Leaving accept unrestricted forces Android to fall back to
+           the traditional file/document chooser instead, which reads the
+           real file bytes directly. File-type checking happens in JS
+           right after selection instead (see fileInput 'change' handler),
+           so this doesn't loosen what the person can actually pick. -->
+      <input type="file" id="fileInput" style="display:none;">
     </div>
   </main>
 
@@ -1958,6 +1969,15 @@ fileInput.addEventListener('change', async (e) => {
   if(!file) return;
   const step = currentStep();
   const key = captureKey(step);
+
+  // Now that the <input> itself has no `accept` restriction (see comment
+  // on that element for why), validate the file type here in JS instead --
+  // otherwise someone could technically select a non-image file.
+  if(!file.type.startsWith('image/')){
+    await showAppAlert("Please select an image file (JPG or PNG).");
+    fileInput.value = "";
+    return;
+  }
 
   // exifr works directly on the File object -- no separate ArrayBuffer
   // read needed first (the old hand-written parser required one; exifr
