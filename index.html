@@ -1289,6 +1289,7 @@ function buildMetadata(source, resolution, exifOverride){
       "no-gps-data":       "Not available (no location data — Android's photo picker or an app like WhatsApp likely stripped it)",
       "zero-gps":          "Not available (location was off when this photo was taken)",
       "parse-failed":      `Not available (metadata read error: ${(exifOverride && exifOverride.errorDetail) || 'unknown'})`,
+      "outer-exception":   `Not available (unexpected error: ${(exifOverride && exifOverride.errorDetail) || 'unknown'})`,
       "exifr-load-failed": "Not available (metadata reader failed to load — try again with internet on)"
     };
     gpsLabel = (exifOverride && reasonLabels[exifOverride.reason]) || "Not available (photo has no location data)";
@@ -1968,7 +1969,16 @@ fileInput.addEventListener('change', async (e) => {
       exifData = { gps: parsed.gps, dateTime: parsed.dateTime, reason: parsed.reason, errorDetail: parsed.errorDetail };
     }
   }catch(err){
-    console.warn("EXIF parse failed (photo may lack EXIF data):", err);
+    // This outer catch used to swallow errors silently (console.warn only,
+    // invisible on a phone with no dev console access) -- that was a real
+    // diagnostic blind spot: if anything threw here rather than inside
+    // parseExifGPSAndDate's own internal try/catches, it would produce the
+    // old generic "photo has no location data" fallback with zero detail
+    // on WHY, no matter what actually went wrong. Now it surfaces the real
+    // error message the same way the inner catches already do.
+    console.warn("EXIF parse failed (outer catch):", err);
+    const detail = (err && err.message) ? err.message : String(err);
+    exifData = { gps:null, dateTime:null, reason:"outer-exception", errorDetail: detail };
   }
 
   const reader = new FileReader();
