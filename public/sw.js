@@ -20,6 +20,10 @@ const CACHE_VERSION = 'v25';
 const CACHE_NAME = `cattle-claim-${CACHE_VERSION}`;
 
 // ---- App shell: the local files this app is built from ----
+// NOTE: './assets/main.js' added -- this is the bundled JS output (see
+// vite.config.js: configured with a fixed, predictable filename instead
+// of Vite's default content-hash, specifically so this precache list
+// doesn't silently go stale every build).
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -27,14 +31,18 @@ const SHELL_ASSETS = [
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-512-maskable.png',
+  './assets/main.js',
 ];
 
-// ---- CDN library entry points (tfjs, blazeface, onnxruntime-web, exifr) ----
+// ---- CDN library entry points ----
+// Only onnxruntime-web is CDN-loaded now -- tfjs, blazeface, and exifr are
+// bundled directly via npm imports (see package.json), so there's nothing
+// external to precache for those anymore. onnxruntime-web stays
+// CDN-loaded deliberately (see src/app.js for the real, measured reason:
+// bundling it caused a 26.8MB WASM file to be statically included in the
+// build output).
 const CDN_ASSETS = [
-  'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs',
-  'https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface',
-  'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js',
-  'https://cdn.jsdelivr.net/npm/exifr/dist/lite.umd.js',
+  'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/ort.min.js',
 ];
 
 // ---- All trained ONNX models (from CATTLE_MODEL_CONFIG / COCO_MODEL_CONFIG
