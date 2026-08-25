@@ -4,10 +4,10 @@
 // variables. Logic is otherwise unchanged from the original.
 // =========================================================================
 import { state } from '../state.js';
-import { DEAD_STEPS, LIVE_STEPS, DEMO_STEP } from '../config/steps.js';
+import { DEAD_STEPS, LIVE_STEPS } from '../config/steps.js';
 
 export function activeStepList(){ return state.currentDomain === "dead" ? DEAD_STEPS : LIVE_STEPS; }
-export function allNavSteps(){ return state.currentDomain === "live" ? [...activeStepList(), DEMO_STEP] : activeStepList(); }
+export function allNavSteps(){ return activeStepList(); }
 export function requiredSteps(){ return activeStepList().filter(s => s.required); }
 export function currentStep(){ return allNavSteps()[state.currentStepIdx]; }
 

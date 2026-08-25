@@ -35,12 +35,14 @@ const SHELL_ASSETS = [
 ];
 
 // ---- CDN library entry points ----
-// Only onnxruntime-web is CDN-loaded now -- tfjs, blazeface, and exifr are
-// bundled directly via npm imports (see package.json), so there's nothing
-// external to precache for those anymore. onnxruntime-web stays
-// CDN-loaded deliberately (see src/app.js for the real, measured reason:
-// bundling it caused a 26.8MB WASM file to be statically included in the
-// build output).
+// onnxruntime-web is CDN-loaded, NOT an npm import -- see honesty note in
+// src/app.js: bundling it directly added a real, measured 26.8MB WASM file
+// to the build output. Loading it via CDN instead lets it fetch only the
+// ONE WASM variant a given device actually needs, at runtime, matching
+// what the original app always did. (tfjs/blazeface were also CDN-loaded
+// for the same reason, but that entire "Face Detect Demo" feature has
+// since been removed from the app -- see chat -- so there's nothing left
+// to precache for those anymore.)
 const CDN_ASSETS = [
   'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/ort.min.js',
 ];

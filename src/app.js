@@ -18,10 +18,10 @@
 // =========================================================================
 import { state } from './state.js';
 // onnxruntime-web is loaded via CDN <script> tag (see index.html), NOT an
-// npm import, unlike tfjs/blazeface/exifr elsewhere in this app. This is
-// deliberate: its own source uses asset-reference patterns that trigger
-// bundlers (Vite included) to statically bundle a WASM backend file
-// directly into the production output -- measured at 26.8MB, the largest
+// npm import, unlike exifr elsewhere in this app. This is deliberate: its
+// own source uses asset-reference patterns that trigger bundlers (Vite
+// included) to statically bundle a WASM backend file directly into the
+// production output -- measured at 26.8MB, the largest
 // variant, regardless of what a given device actually needs. Standard
 // Vite config fixes (optimizeDeps.exclude, output externals) didn't
 // resolve this at the production-build level, and further attempts
@@ -31,7 +31,7 @@ import { state } from './state.js';
 // WASM variant a given device actually needs, dynamically, at runtime --
 // exactly the original app's behavior. `ort` below is the CDN-loaded
 // global, matching the original code's usage throughout this file.
-import { DEAD_STEPS, LIVE_STEPS, DEMO_STEP } from './config/steps.js';
+import { DEAD_STEPS, LIVE_STEPS } from './config/steps.js';
 import { BORDERS } from './config/borders.js';
 import { REFERENCE_PHOTOS } from './config/reference-photos.js';
 import { COCO_MODEL_CONFIG, CATTLE_MODEL_CONFIG, SECONDARY_MODEL_CONFIG } from './config/models.js';
@@ -44,6 +44,17 @@ import {
   isDualSideStep, sidesForDualStep, captureKey, stepIsDone,
   representativeCapture, findGeotagSourceCap
 } from './capture/capture-keys.js';
+
+// Sets a default "left" side for every sided step (Flank, Head, Live
+// Flank), so guide overlays and captureKey() produce valid results from
+// the very first load -- not just after the person happens to tap a side
+// toggle button at least once. This exact initialization line was present
+// in the original app but got left behind during the modular extraction
+// (found via real device testing -- see chat: same root cause as the
+// earlier reverseGeocode/measureWrappedLines/drawPinIcon bugs, code that
+// existed right alongside logic that DID get moved, but wasn't itself
+// carried over). MUST run before selectStep(0) in the Init section below.
+[...DEAD_STEPS, ...LIVE_STEPS].forEach(s => { if(s.sided) state.stepSide[s.id] = "left"; });
 
 const chipScroll   = document.getElementById('chipScroll');
 const sideToggle    = document.getElementById('sideToggle');
@@ -242,15 +253,7 @@ function selectStep(idx){
   readyStreak = 0; isReady = false;
   guideMain.classList.remove('ready'); guideHalo.classList.remove('ready'); camHint.classList.remove('ready');
 
-  if(step.demo){
-    viewfinder.classList.add('demo-mode');
-    guideMain.setAttribute('d', '');
-    guideHalo.setAttribute('d', '');
-    guideLabel.textContent = "Face Detection Demo";
-    camHintText.textContent = faceModel ? step.hint : "Loading face detection model…";
-    reqNote.innerHTML = `<b>Demo only — not a required claim photo.</b> Proves live detection works end-to-end.`;
-    if(!faceModel && !faceModelLoading) loadFaceModel();
-  } else if(!step.sided && !step.border){
+  if(!step.sided && !step.border){
     // LIVE steps with no static traced outline, plus freeform/video steps
     // (Owner Photo, Scar/Injury, Video) -- no detection UI needed.
     viewfinder.classList.remove('demo-mode');
@@ -1241,13 +1244,6 @@ async function analyzeTick(){
     camHintText.textContent = isRecording ? "" : hintMsg;
     return;
   }
-  if(step.demo){
-    partBox.style.display = 'none';
-    partBox2.style.display = 'none';
-  partBox3.style.display = 'none';
-    analyzeFaceFrame();
-    return;
-  }
   const cfg = CATTLE_MODEL_CONFIG[step.id];
   if(cfg && cfg.url){
     faceBox.style.display = 'none';
@@ -1687,67 +1683,9 @@ async function analyzeCocoCowFrame(step){
   cattleDetectBusy = false;
 }
 
-// ---------- Face detection demo (BlazeFace) ----------
-let faceModel = null;
-let faceModelLoading = false;
-let faceDetectBusy = false;
-
-async function loadFaceModel(){
-  if(faceModel || faceModelLoading) return;
-  faceModelLoading = true;
-  if(currentStep().demo) camHintText.textContent = "Loading face detection model…";
-  try{
-    await window.__tfjsReady;
-    faceModel = await blazeface.load();
-    if(currentStep().demo) camHintText.textContent = currentStep().hint;
-  }catch(err){
-    console.error("BlazeFace load error:", err);
-    if(currentStep().demo) camHintText.textContent = "Face model failed to load — check that cdn.jsdelivr.net isn't blocked on this network";
-  }
-  faceModelLoading = false;
-}
-
-async function analyzeFaceFrame(){
-  if(viewfinder.classList.contains('captured')) return;
-  if(faceDetectBusy || !faceModel) return;
-  if(!video.videoWidth || !video.videoHeight) return;
-  faceDetectBusy = true;
-  try{
-    const predictions = await faceModel.estimateFaces(video, false);
-    if(predictions.length > 0){
-      const [x1,y1] = predictions[0].topLeft;
-      const [x2,y2] = predictions[0].bottomRight;
-      positionFaceBox(x1,y1,x2,y2);
-      camHint.classList.add('ready');
-      camHintText.textContent = predictions.length > 1 ? `${predictions.length} faces detected ✓` : "Face detected ✓";
-    } else {
-      faceBox.style.display = 'none';
-      camHint.classList.remove('ready');
-      camHintText.textContent = currentStep().hint;
-    }
-  }catch(err){ console.error("Face detection error:", err); }
-  faceDetectBusy = false;
-}
-
-function positionFaceBox(x1, y1, x2, y2){
-  const rect = viewfinder.getBoundingClientRect();
-  const vw = video.videoWidth, vh = video.videoHeight;
-  const boxRatio = rect.width/rect.height, vRatio = vw/vh;
-  let sx,sy,sw,sh;
-  if(vRatio > boxRatio){ sh=vh; sw=vh*boxRatio; sy=0; sx=(vw-sw)/2; }
-  else { sw=vw; sh=vw/boxRatio; sx=0; sy=(vh-sh)/2; }
-  const scaleX = rect.width / sw, scaleY = rect.height / sh;
-  faceBox.style.left   = ((x1 - sx) * scaleX) + "px";
-  faceBox.style.top    = ((y1 - sy) * scaleY) + "px";
-  faceBox.style.width  = ((x2 - x1) * scaleX) + "px";
-  faceBox.style.height = ((y2 - y1) * scaleY) + "px";
-  faceBox.style.display = 'block';
-}
-
 // ---------- Init ----------
 selectStep(0);
 updateProgress();
 initGeolocation();
 startCamera();
 startDetection();
-loadFaceModel();

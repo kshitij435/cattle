@@ -13,8 +13,6 @@
     "vite": "^8.2.0"
   },
   "dependencies": {
-    "@tensorflow-models/blazeface": "^0.1.0",
-    "@tensorflow/tfjs": "^4.22.0",
     "exifr": "^7.1.3"
   }
 }

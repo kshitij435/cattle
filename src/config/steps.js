@@ -47,7 +47,4 @@ const LIVE_STEPS = [
     hint:"Tap to generate a geotagged version of your Flank photo" },
 ];
 
-const DEMO_STEP = { id:"human_face", label:"Face Detect (Demo)", sided:false, required:false, demo:true, domain:"live",
-    hint:"Live model demo — point the camera at a person's face" };
-
-export { DEAD_STEPS, LIVE_STEPS, DEMO_STEP };
+export { DEAD_STEPS, LIVE_STEPS };
