@@ -1,0 +1,274 @@
+  :root{
+    --accent:#8CC63F;
+    --accent-dark:#6ba82c;
+    --ink:#12160f;
+    --panel:#1b1f17;
+    --panel-2:#232a1c;
+    --line:rgba(255,255,255,0.14);
+    --muted:#9aa596;
+    --danger:#e2574c;
+    --radius:14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html{height:100%;}
+  body{
+    margin:0;padding:0;background:var(--ink);color:#eef1ea;overflow-x:hidden;
+    display:flex;flex-direction:column;
+    height:100vh;height:100svh;height:100dvh;
+  }
+
+  header{flex:0 0 auto;padding:10px 16px 8px;background:linear-gradient(180deg,#151912,#12160f);border-bottom:1px solid var(--line);}
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand .cow{font-size:22px;line-height:1;}
+  .brand h1{font-size:15px;margin:0;font-weight:700;letter-spacing:.2px;}
+  .brand p{margin:2px 0 0;font-size:11.5px;color:var(--muted);letter-spacing:.3px;text-transform:uppercase;}
+  .case-details-btn{
+    margin-left:auto;display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:99px;
+    background:var(--panel);border:1px solid var(--line);color:#d7ddcf;font-size:11.5px;font-weight:700;
+    cursor:pointer;white-space:nowrap;flex:0 0 auto;
+  }
+  .cd-dot{width:7px;height:7px;border-radius:50%;background:#e2574c;flex:0 0 auto;}
+  .cd-dot.filled{background:var(--accent);}
+
+  /* ---------- Mode toggle (Dead / Live) ---------- */
+  .mode-toggle{flex:0 0 auto;display:flex;gap:8px;padding:10px 16px 0;}
+  .mode-btn{
+    flex:1;padding:10px;border-radius:11px;background:var(--panel);border:1px solid var(--line);
+    color:#c9d1bd;font-size:13px;font-weight:800;text-align:center;cursor:pointer;letter-spacing:.3px;
+    display:flex;align-items:center;justify-content:center;gap:6px;
+  }
+  .mode-btn.active{background:var(--accent);border-color:var(--accent);color:#0e1509;}
+  .mode-btn .mode-icon{font-size:15px;}
+
+  .progress-row{display:flex;align-items:center;gap:6px;margin-top:8px;padding:0 16px;}
+  .progress-bar{flex:1;height:6px;border-radius:99px;background:#2a2f22;overflow:hidden;}
+  .progress-fill{height:100%;background:var(--accent);width:0%;transition:width .35s ease;}
+  .progress-count{font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;}
+
+  .chip-scroll{flex:0 0 auto;display:flex;gap:6px;overflow-x:auto;padding:8px 16px 4px;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+  .chip-scroll::-webkit-scrollbar{display:none;}
+  .chip{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:99px;background:var(--panel);
+    border:1px solid var(--line);font-size:12.5px;color:#d7ddcf;cursor:pointer;white-space:nowrap;transition:.15s ease;font-weight:600;}
+  .chip .dot{width:7px;height:7px;border-radius:50%;background:#4a5240;flex:0 0 auto;}
+  .chip.done .dot{background:var(--accent);}
+  .chip.active{background:var(--accent);border-color:var(--accent);color:#0e1509;}
+  .chip.active .dot{background:#0e1509;}
+
+  .side-toggle{flex:0 0 auto;display:none;gap:8px;padding:2px 16px 8px;}
+  .side-toggle.show{display:flex;}
+  .side-btn{flex:1;padding:7px;border-radius:10px;background:var(--panel);border:1px solid var(--line);
+    color:#c9d1bd;font-size:12.5px;font-weight:700;text-align:center;cursor:pointer;letter-spacing:.3px;}
+  .side-btn.active{background:var(--accent);border-color:var(--accent);color:#0e1509;}
+
+  main{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;padding:0 16px 8px;gap:8px;overflow-y:auto;}
+  /* ⚠️ FIX: previously min-height:0 let the photo get squeezed smaller
+     and smaller every time more content (like the ELA sliders) was added
+     below it, since the whole page was locked to one screen height with
+     no scrolling. A real minimum height means the photo now stays a
+     consistent size no matter what; if there's more content than fits,
+     the page scrolls instead of shrinking the photo. */
+  .viewfinder{position:relative;width:100%;flex:1 1 auto;min-height:42vh;background:#000;border-radius:var(--radius);overflow:hidden;
+    border:1px solid var(--line);box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);}
+  .viewfinder video, .viewfinder .frame-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+  /* ⚠️ FIX: the LIVE camera feed should fill the frame (cover) for
+     natural real-time framing, but a CAPTURED photo being reviewed must
+     never be cropped -- especially since gallery uploads or the Geotag
+     step's generated image can be landscape while the viewfinder itself
+     is portrait-shaped. "contain" always shows the full image,
+     letterboxed with black bars instead of cutting off the edges. */
+  .viewfinder .frame-img{object-fit:contain;background:#000;}
+  #elaImg{transition:opacity .15s ease;}
+  #elaImg.regenerating{opacity:.45;}
+  .viewfinder .frame-img{display:none;}
+  .viewfinder.captured video{display:none;}
+  .viewfinder.captured .frame-img{display:block;}
+
+  .guide-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+  .viewfinder.captured .guide-svg{opacity:0;}
+  .guide-silhouette-halo{fill:none;stroke:#000;stroke-width:14;stroke-linejoin:round;stroke-linecap:round;opacity:.45;}
+  .guide-silhouette{fill:none;stroke:#fff;stroke-width:6;stroke-linejoin:round;stroke-linecap:round;filter:drop-shadow(0 0 6px rgba(0,0,0,.5));transition:stroke .2s ease;}
+  .guide-silhouette.ready{stroke:#8CC63F;}
+  .guide-silhouette-halo.ready{opacity:.6;}
+  .guide-cross{stroke:#fff;stroke-width:1.4;stroke-dasharray:7,9;opacity:.35;}
+  .guide-label{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:12.5px;font-weight:700;
+    letter-spacing:1.6px;color:#fff;text-transform:uppercase;text-shadow:0 1px 4px rgba(0,0,0,.8);pointer-events:none;}
+
+  .meta-bar{position:absolute;left:0;right:0;bottom:0;display:none;padding:9px 12px 8px;
+    background:linear-gradient(0deg,rgba(0,0,0,.75),rgba(0,0,0,0));font-size:10.5px;color:#eef1ea;line-height:1.5;}
+  .viewfinder.captured .meta-bar{display:block;}
+  .meta-bar .row{display:flex;align-items:center;gap:5px;opacity:.92;}
+  .meta-bar .row + .row{margin-top:1px;}
+
+  .corner{position:absolute;width:26px;height:26px;pointer-events:none;}
+  .corner svg{width:100%;height:100%;}
+  .corner.tl{top:10px;left:10px;} .corner.tr{top:10px;right:10px;transform:scaleX(-1);}
+  .corner.bl{bottom:10px;left:10px;transform:scaleY(-1);} .corner.br{bottom:10px;right:10px;transform:scale(-1,-1);}
+
+  .cam-hint{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.55);padding:6px 12px;
+    border-radius:99px;font-size:11.5px;color:#e7ebe0;backdrop-filter:blur(4px);display:flex;align-items:center;gap:6px;max-width:88%;
+    transition:background .2s ease,color .2s ease;}
+  .cam-hint.ready{background:rgba(140,198,63,.92);color:#0e1509;font-weight:700;}
+  .viewfinder.captured .cam-hint{display:none;}
+  .cam-hint .pulse{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 1.4s ease-in-out infinite;flex:0 0 auto;}
+  .cam-hint.ready .pulse{background:#0e1509;animation:none;}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.4;transform:scale(1.5);}}
+
+  .gps-pill{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.55);padding:5px 9px;border-radius:99px;
+    font-size:10.5px;color:#cfe6ab;backdrop-filter:blur(4px);display:flex;align-items:center;gap:4px;
+    text-decoration:none;pointer-events:none;max-width:60%;}
+  .gps-pill.linked{pointer-events:auto;}
+  .gps-pill.pending{color:#e7ebe0;}
+  .gps-pill.error{color:#e2a06c;}
+
+  .face-box{position:absolute;border:3px solid #8CC63F;border-radius:10px;display:none;
+    box-shadow:0 0 0 4px rgba(140,198,63,.22);pointer-events:none;
+    transition:left .1s linear, top .1s linear, width .1s linear, height .1s linear;}
+  .face-box .face-tag{position:absolute;top:-25px;left:-3px;background:#8CC63F;color:#0e1509;font-size:10px;
+    font-weight:800;padding:3px 8px;border-radius:6px;letter-spacing:.4px;white-space:nowrap;}
+
+  .cam-error{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;
+    gap:8px;padding:20px;text-align:center;color:var(--muted);font-size:13px;}
+  .cam-error.show{display:flex;}
+
+  .controls{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:22px;padding:0;}
+  .btn-round{width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:#dfe6d6;
+    display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;transition:.15s ease;}
+  .btn-round:active{transform:scale(.93);}
+  .ref-btn{padding:0;overflow:hidden;border:2px solid var(--accent);}
+  .ref-btn img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
+  .ref-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;
+    z-index:200;flex-direction:column;padding:20px;box-sizing:border-box;}
+  .ref-lightbox.show{display:flex;}
+  .ref-lightbox img{max-width:100%;max-height:80vh;object-fit:contain;border-radius:8px;}
+  .ref-lightbox-close{position:absolute;top:16px;right:16px;width:38px;height:38px;border-radius:50%;border:none;
+    background:rgba(255,255,255,.15);color:#fff;font-size:18px;cursor:pointer;}
+  .ref-lightbox-caption{color:#dfe6d6;font-size:13px;margin-top:14px;text-align:center;max-width:90%;}
+  .app-alert-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;
+    z-index:300;padding:24px;box-sizing:border-box;}
+  .app-alert-backdrop.show{display:flex;}
+  .app-alert-box{background:#1b2418;border:1px solid var(--line);border-radius:14px;padding:22px 20px;max-width:340px;width:100%;
+    box-shadow:0 12px 32px rgba(0,0,0,.4);}
+  .app-alert-box p{margin:0 0 18px;color:#eef2e8;font-size:15px;line-height:1.5;white-space:pre-line;}
+  .app-alert-box button{width:100%;padding:11px;border:none;border-radius:9px;background:var(--accent);color:#0e1509;
+    font-weight:700;font-size:15px;cursor:pointer;}
+  .shutter{width:58px;height:58px;border-radius:50%;background:#fff;border:4px solid rgba(255,255,255,.25);cursor:pointer;
+    transition:.15s ease;position:relative;flex:0 0 auto;}
+  .shutter:active{transform:scale(.92);}
+  .shutter.shake{animation:shutterShake .4s ease;border-color:#e05252;}
+  @keyframes shutterShake{
+    0%,100%{transform:translateX(0);}
+    20%{transform:translateX(-6px);}
+    40%{transform:translateX(6px);}
+    60%{transform:translateX(-4px);}
+    80%{transform:translateX(4px);}
+  }
+  .shutter.recording{background:#e05252;border-color:rgba(224,82,82,.4);animation:shutterPulse 1s ease-in-out infinite;}
+  @keyframes shutterPulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(224,82,82,.5);}
+    50%{box-shadow:0 0 0 10px rgba(224,82,82,0);}
+  }
+  .rec-indicator{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:none;align-items:center;gap:6px;
+    background:rgba(0,0,0,.6);color:#fff;font-size:12px;font-weight:600;padding:6px 12px;border-radius:20px;z-index:5;}
+  .rec-indicator.show{display:flex;}
+  .rec-indicator .rec-dot{width:9px;height:9px;border-radius:50%;background:#e05252;animation:recDotPulse 1s ease-in-out infinite;}
+  @keyframes recDotPulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+  .shutter.retake-mode{background:var(--accent);border-color:rgba(140,198,63,.3);}
+  .shutter.retake-mode::after{content:"↺";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:22px;color:#0e1509;font-weight:700;}
+
+  .req-note{flex:0 0 auto;text-align:center;font-size:11.5px;color:var(--muted);line-height:1.4;padding:0 8px;
+    max-height:32px;overflow:hidden;}
+  .req-note b{color:#d7ddcf;}
+
+  .meta-panel{flex:0 0 auto;display:none;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:8px 10px;font-size:11px;color:#c9d1bd;line-height:1.65;}
+  .meta-panel.show{display:block;}
+  /* While reviewing ELA, hide the metadata rows (not needed for that
+     check) so the photo gets its screen space back instead of being
+     squeezed thin by everything stacked below it. */
+  .meta-panel.ela-mode .mp-row{display:none;}
+  .meta-panel .mp-row{display:flex;justify-content:space-between;gap:8px;}
+  .meta-panel .mp-label{color:var(--muted);flex:0 0 auto;}
+  .meta-panel .mp-val{text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #elaToggleBtn{width:100%;margin-top:10px;padding:9px;border:1px solid #e0a952;border-radius:8px;
+    background:rgba(224,169,82,.12);color:#e0a952;font-size:12px;font-weight:600;cursor:pointer;}
+  #elaToggleBtn.active{background:#e0a952;color:#1b1608;}
+  /* Sits BELOW the photo, in normal document flow -- not overlaying it,
+     so the image stays fully visible while adjusting. */
+  #elaControls{margin-top:10px;padding:10px 12px;background:rgba(224,169,82,.08);
+    border:1px solid rgba(224,169,82,.3);border-radius:8px;}
+  #elaControls.show{display:block !important;}
+  .ela-slider-row{margin-bottom:10px;}
+  .ela-slider-row:last-of-type{margin-bottom:4px;}
+  .ela-slider-row label{display:block;font-size:11px;color:#e0a952;margin-bottom:4px;}
+  .ela-slider-row input[type="range"]{width:100%;accent-color:#e0a952;}
+  #elaRegenStatus{font-size:10px;color:var(--muted);text-align:center;min-height:14px;}
+
+  /* ---------- Automated tamper-check badge ---------- */
+  .tamper-badge{
+    display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:99px;
+    font-size:11.5px;font-weight:800;letter-spacing:.2px;
+  }
+  .tamper-badge.low{background:rgba(140,198,63,0.16);color:var(--accent);border:1px solid rgba(140,198,63,0.4);}
+  .tamper-badge.uncertain{background:rgba(224,169,82,0.16);color:#e0a952;border:1px solid rgba(224,169,82,0.4);}
+  .tamper-badge.elevated{background:rgba(226,87,76,0.16);color:var(--danger);border:1px solid rgba(226,87,76,0.4);}
+  .tamper-badge.na{background:rgba(255,255,255,0.06);color:var(--muted);border:1px solid var(--line);}
+  .exif-flag-row{font-size:10.5px;color:var(--muted);padding:3px 0;line-height:1.5;}
+  .exif-flag-row .tag{display:inline-block;font-size:9px;font-weight:800;padding:1px 6px;border-radius:99px;margin-right:5px;}
+  .exif-flag-row .tag.High{background:rgba(226,87,76,0.2);color:var(--danger);}
+  .exif-flag-row .tag.Medium{background:rgba(224,169,82,0.2);color:#e0a952;}
+  .exif-flag-row .tag.Low{background:rgba(255,255,255,0.08);color:var(--muted);}
+  #mpTamperDetail{display:block;font-size:10.5px;color:var(--muted);margin-top:3px;line-height:1.5;}
+  .meta-panel a{color:var(--accent);text-decoration:none;font-weight:700;}
+  .meta-panel a:active{opacity:.7;}
+
+  .thumb-strip{flex:0 0 auto;display:flex;gap:6px;padding:8px 16px;overflow-x:auto;border-top:1px solid var(--line);
+    background:var(--panel-2);-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+  .thumb-strip::-webkit-scrollbar{display:none;}
+  .thumb{flex:0 0 auto;width:44px;height:44px;border-radius:9px;overflow:hidden;background:#12160f;
+    border:2px solid var(--line);position:relative;cursor:pointer;}
+  .thumb.active{border-color:var(--accent);}
+  .thumb img{width:100%;height:100%;object-fit:cover;}
+  .thumb .placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#4a5240;font-size:14px;}
+  .thumb .tag{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.65);font-size:7px;text-align:center;
+    padding:1px 0;color:#c9d1bd;letter-spacing:.2px;}
+
+  .export-wrap{flex:0 0 auto;padding:8px 16px calc(8px + env(safe-area-inset-bottom));}
+  .export-btn{display:none;width:100%;padding:11px;border-radius:12px;background:var(--accent);color:#0e1509;
+    font-weight:700;font-size:13px;border:none;cursor:pointer;letter-spacing:.2px;}
+  .export-btn.show{display:block;}
+
+  @media (min-width:640px){ body{max-width:480px;margin:0 auto;box-shadow:0 0 40px rgba(0,0,0,.5);} }
+  @media (max-height:680px){
+    .chip{padding:6px 10px;font-size:11.5px;}
+    .req-note{display:none;}
+  }
+
+  /* ---------- Case Details panel ---------- */
+  #caseDetailsPanel{
+    display:none; position:fixed; inset:0; background:#0c0f0a; z-index:9998;
+    overflow-y:auto; padding:16px 16px calc(24px + env(safe-area-inset-bottom));
+    color:#eef1ea; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  #caseDetailsPanel.show{ display:block; }
+  .cd-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+  .cd-header h2{font-size:17px;margin:0;}
+  .cd-close{background:var(--panel);border:1px solid var(--line);color:#eef1ea;border-radius:99px;
+    width:34px;height:34px;font-size:16px;cursor:pointer;}
+  .cd-section{margin-bottom:18px;}
+  .cd-section h3{font-size:12px;letter-spacing:.8px;text-transform:uppercase;color:var(--accent);
+    margin:0 0 10px;font-weight:700;}
+  .cd-field{margin-bottom:10px;}
+  .cd-field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;}
+  .cd-field input{
+    width:100%;padding:10px 11px;border-radius:9px;border:1px solid var(--line);
+    background:var(--panel);color:#eef1ea;font-size:13.5px;box-sizing:border-box;
+  }
+  .cd-field input:focus{outline:none;border-color:var(--accent);}
+  .cd-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .cd-save{
+    width:100%;padding:13px;border-radius:12px;background:var(--accent);color:#0e1509;
+    font-weight:700;font-size:14px;border:none;cursor:pointer;margin-top:6px;
+  }
+  .cd-status{text-align:center;font-size:12px;color:var(--muted);margin-top:8px;min-height:16px;}

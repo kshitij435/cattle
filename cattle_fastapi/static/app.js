@@ -1,0 +1,4461 @@
+// =========================================================================
+// BORDERS -- traced silhouette guide outlines.
+// Dead-flow shapes (flank, head, muzzle) traced earlier. Live-flow shapes
+// (flank, front head, rear view) plus ear_tag (shared by both dead and
+// live) traced from your latest set.
+// =========================================================================
+// =========================================================================
+// REFERENCE_PHOTOS -- one example photo per step, shown via a small
+// round thumbnail button next to the gallery button; tapping it opens a
+// full-screen zoomed view so the user can see exactly what a good capture
+// looks like before shooting their own. Same GitHub raw-hosting pattern as
+// the ONNX models. Sided steps (flank, head) need a separate photo per
+// side -- keyed as "<stepId>_left" / "<stepId>_right" -- everything else
+// is keyed directly by step id.
+// =========================================================================
+const REFERENCE_PHOTOS = {
+  flank_left:        { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_flank_left.jpg", caption: "Flank (Left) — Dead" },
+  flank_right:       { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_flank_right.jpg", caption: "Flank (Right) — Dead" },
+  head_left:         { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_head_left.jpg", caption: "Head (Left) — Dead" },
+  head_right:        { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_head_right.jpg", caption: "Head (Right) — Dead" },
+  muzzle:            { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_muzzle.png", caption: "Muzzle — Dead" },
+  ear_tag:           { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_ear_tag.png", caption: "Ear Tag" },
+  owner_photo:       { url: "", caption: "Owner Photo — Dead" },
+  video:             { url: "", caption: "Video — Dead" },
+  scar_injury:       { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_scar_injury.png", caption: "Scar/Injury" },
+  flank_live_left:   { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_flank_live_left.jpg", caption: "Flank (Left) — Live" },
+  flank_live_right:  { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_flank_live_right.jpg", caption: "Flank (Right) — Live" },
+  front_view_live:   { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_front_view_live.jpg", caption: "Front Head — Live" },
+  rear_view_live:    { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_rear_view_live.jpg", caption: "Rear View — Live" },
+  muzzle_live:       { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_muzzle_live.png", caption: "Muzzle — Live" },
+  ear_tag_live:      { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_ear_tag.png", caption: "Ear Tag" },
+  owner_photo_live:  { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_owner_photo_live.jpg", caption: "Owner Photo — Live" },
+  video_live:        { url: "", caption: "Video — Live" },
+  scar_injury_live:  { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_scar_injury.png", caption: "Scar/Injury" },
+  eardemo_live:      { url: "https://raw.githubusercontent.com/kshitij435/cattle/main/ref_ear_tag.png", caption: "Ear Demo (OCR testing)" },
+
+};
+function referenceKeyFor(step){ return step.sided ? `${step.id}_${stepSide[step.id]}` : step.id; }
+
+// Turns a capture's meta.source into the label shown in the details panel.
+// Handles all three cases the app can actually produce: a raw live-camera
+// shot, a raw gallery upload, and a Geotag step's generated composite
+// (which isn't "from" either directly -- it's built FROM one of the two,
+// so it shows that original source in parentheses rather than mislabeling
+// itself as a plain gallery upload, which was the previous bug here).
+function sourceLabelFor(meta){
+  if(meta.source === 'geotag-generated'){
+    const origLabel = meta.originalSource === 'camera' ? 'Live Camera' : 'Gallery Upload';
+    return `Geotag Overlay (from ${origLabel})`;
+  }
+  return meta.source === 'camera' ? 'Live Camera' : 'Gallery Upload';
+}
+
+const BORDERS = {
+  left_flank:        { label: "Left Flank",  path: "M940.0,336.0 L925.8,315.1 L891.4,309.0 L879.3,294.2 L801.7,273.3 L669.4,269.9 L570.2,290.8 L485.2,329.9 L417.0,343.4 L398.8,342.8 L367.1,307.0 L344.8,297.5 L323.2,309.0 L274.6,313.1 L75.5,313.1 L61.3,333.3 L60.0,375.8 L64.0,388.7 L74.2,395.4 L116.7,406.9 L196.3,454.8 L248.3,471.7 L359.0,491.2 L398.8,511.5 L423.1,542.5 L462.2,574.2 L471.0,606.6 L473.0,716.0 L478.4,722.7 L514.2,730.1 L524.3,724.0 L524.3,640.4 L541.8,588.4 L647.1,589.8 L801.0,556.0 L819.9,556.0 L824.6,562.8 L824.6,611.3 L808.4,664.0 L809.1,703.1 L862.4,711.2 L862.4,597.2 L892.1,553.3 L899.5,515.5 L917.1,489.2 Z" },
+  right_flank:       { label: "Right Flank", path: "M60.0,335.3 L82.9,489.2 L100.5,515.5 L107.9,553.3 L137.6,597.2 L137.6,711.2 L190.9,703.1 L191.6,664.0 L175.4,611.3 L175.4,562.8 L180.1,556.0 L199.0,556.0 L347.5,589.1 L458.2,588.4 L475.7,640.4 L475.7,724.7 L485.8,730.1 L526.3,717.3 L529.0,606.6 L537.8,574.2 L571.5,547.9 L601.2,511.5 L643.7,490.6 L751.7,471.7 L813.8,450.7 L882.0,407.5 L933.9,390.7 L940.0,375.8 L938.7,332.6 L924.5,313.1 L725.4,313.1 L676.8,309.0 L654.5,297.5 L632.9,307.0 L601.2,342.8 L583.7,343.4 L514.8,329.9 L429.8,290.8 L330.6,269.9 L201.0,272.6 L120.7,294.2 L108.6,309.0 L72.8,315.8 Z" },
+  front_view_left:   { label: "Head (Left)",  path: "M772.5,66.6 L741.7,61.5 L702.0,71.0 L572.0,71.0 L542.6,87.2 L527.9,87.2 L524.2,81.3 L486.0,82.0 L444.2,60.7 L395.7,60.0 L320.8,71.8 L297.3,104.8 L310.5,227.5 L303.9,310.5 L288.4,366.3 L267.9,393.5 L245.8,383.9 L222.3,383.2 L202.5,403.0 L201.8,427.3 L222.3,448.6 L210.6,471.4 L210.6,519.1 L238.5,594.8 L254.7,622.7 L284.8,649.1 L317.8,728.4 L375.1,825.4 L403.0,894.5 L437.6,939.3 L469.1,940.0 L502.9,923.8 L555.1,850.4 L556.6,817.3 L537.5,795.3 L535.3,773.3 L562.4,687.3 L560.2,464.0 L584.5,421.4 L599.2,367.8 L624.9,325.2 L657.9,240.7 L686.6,194.4 L737.3,140.1 L786.5,126.1 L796.0,115.8 L798.2,87.9 Z" },
+  front_view_right:  { label: "Head (Right)", path: "M227.5,66.6 L201.8,87.9 L203.2,114.4 L213.5,126.1 L262.0,139.3 L314.2,195.2 L342.1,240.7 L375.1,325.2 L400.8,367.8 L415.5,421.4 L439.8,464.0 L437.6,687.3 L464.7,773.3 L462.5,795.3 L443.4,817.3 L445.6,851.9 L499.3,925.3 L530.9,940.0 L563.9,938.5 L598.4,891.5 L624.9,825.4 L682.9,727.0 L716.0,647.6 L742.4,626.3 L761.5,594.8 L790.2,514.7 L789.4,472.1 L777.7,448.6 L798.2,427.3 L797.5,403.0 L777.7,383.2 L757.1,383.2 L732.1,393.5 L711.6,366.3 L696.1,311.2 L689.5,226.7 L702.7,104.8 L689.5,79.8 L675.6,70.3 L604.3,60.0 L552.9,61.5 L514.0,82.0 L475.8,81.3 L472.1,87.2 L457.4,87.2 L428.0,71.0 L298.7,71.0 L258.3,61.5 Z" },
+  muzzle:            { label: "Muzzle", path: "M213.2,98.6 L174.0,144.0 L151.9,151.3 L161.7,156.2 L161.7,163.6 L145.8,179.5 L85.7,212.6 L69.8,234.7 L60.0,549.6 L74.7,587.6 L118.8,652.6 L151.9,686.9 L204.6,767.8 L267.1,821.7 L356.6,872.0 L449.7,897.7 L531.9,907.5 L617.7,907.5 L708.4,854.8 L731.6,810.7 L805.2,721.2 L826.0,680.8 L837.0,630.5 L865.2,555.8 L909.4,483.5 L940.0,412.4 L940.0,369.5 L926.5,348.6 L841.9,267.7 L682.6,184.4 L465.7,115.8 L324.7,110.9 L259.8,92.5 Z" },
+  ear_tag:           { label: "Ear Tag",  path: "M427.1,69.6 L384.7,110.2 L366.2,141.2 L353.6,254.8 L329.1,349.2 L298.7,392.8 L246.7,434.0 L163.1,472.8 L163.1,939.4 L806.5,940.0 L836.9,925.7 L835.2,453.1 L812.5,434.6 L710.3,404.1 L675.0,381.4 L632.6,339.6 L596.8,269.1 L594.4,123.3 L578.3,98.2 L538.8,67.2 L518.5,60.0 L464.8,61.2 Z" },
+  rear_view_live:    { label: "Rear View",  path: "M366.5,68.1 L335.2,108.8 L341.4,209.5 L320.2,350.2 L320.8,401.5 L327.1,433.4 L340.8,445.9 L369.0,634.2 L365.8,709.8 L379.6,802.4 L360.2,896.2 L365.8,901.2 L438.4,897.5 L415.9,761.7 L415.9,719.8 L430.9,678.6 L429.0,579.7 L468.4,593.5 L492.2,593.5 L500.9,585.4 L559.1,587.2 L568.5,647.9 L564.7,716.7 L582.2,780.5 L581.6,823.0 L564.1,896.2 L577.2,929.4 L606.0,940.0 L632.3,938.7 L647.3,930.0 L630.4,871.2 L624.8,785.5 L641.7,472.8 L671.1,427.8 L679.8,399.6 L675.4,307.7 L648.5,197.0 L648.5,103.2 L614.1,68.1 L536.0,69.4 L508.4,60.0 L458.4,71.3 Z" },
+  front_head_live:   { label: "Front Head", path: "M342.9,60.0 L321.8,70.2 L280.9,115.8 L255.8,166.4 L253.5,192.6 L262.1,251.3 L303.6,275.7 L348.0,280.3 L348.0,303.6 L308.7,316.7 L244.4,322.4 L185.2,353.7 L149.4,386.7 L117.5,441.9 L111.8,473.2 L339.5,477.8 L362.8,534.2 L381.6,649.7 L381.6,731.7 L354.3,826.7 L353.7,884.8 L381.0,914.4 L409.5,925.8 L490.3,940.0 L578.6,938.9 L613.3,921.2 L637.2,895.0 L636.6,845.5 L620.1,782.9 L620.1,698.7 L631.5,568.9 L649.1,493.7 L695.2,505.7 L776.1,504.6 L888.2,463.0 L731.7,357.7 L653.1,340.1 L643.4,327.0 L639.5,280.9 L699.8,275.2 L731.7,223.4 L727.1,136.8 L701.5,78.2 L672.5,182.9 L663.4,190.3 L650.3,184.7 L626.4,109.5 L557.5,79.4 L484.1,86.2 L390.1,79.4 L351.4,124.3 L333.8,182.4 L324.7,187.5 L318.4,173.8 L325.3,118.6 L352.0,69.1 Z" },
+  left_side_live:    { label: "Left Side",   path: "M936.4,662.5 L940.0,341.2 L911.1,280.4 L867.6,265.9 L792.4,214.5 L616.5,252.9 L525.3,234.8 L426.2,234.8 L312.6,270.2 L289.4,250.7 L251.1,259.4 L136.0,240.6 L118.6,259.4 L115.0,286.9 L146.8,316.5 L117.9,320.2 L60.0,356.3 L81.7,373.0 L147.6,378.1 L126.6,420.0 L130.9,443.2 L191.0,453.3 L217.0,431.6 L241.6,431.6 L310.4,460.6 L352.4,490.2 L369.0,532.9 L395.8,552.5 L388.6,663.2 L358.9,700.1 L387.8,702.3 L423.3,689.2 L439.9,595.9 L461.6,657.4 L464.5,711.0 L435.6,741.3 L439.2,755.8 L481.9,755.1 L500.7,739.9 L504.3,685.6 L487.0,546.7 L528.9,547.4 L627.4,573.5 L748.9,564.8 L750.4,621.9 L731.6,697.9 L696.1,743.5 L662.8,767.4 L664.3,785.5 L717.8,784.8 L826.4,637.9 L832.9,578.5 L843.8,592.3 L848.8,680.6 L835.8,714.6 L805.4,731.9 L803.2,743.5 L839.4,745.0 L872.7,732.7 L908.2,593.7 L921.9,682.0 Z" },
+  right_side_live:   { label: "Right Side",  path: "M62.7,659.6 L79.0,682.2 L95.3,603.6 L128.7,734.7 L197.5,743.7 L194.8,731.1 L164.9,713.9 L152.3,682.2 L156.8,592.7 L167.6,580.9 L174.9,639.7 L283.4,785.3 L337.7,785.3 L339.5,769.1 L304.2,742.8 L268.0,694.9 L249.9,621.6 L251.7,565.6 L375.6,573.7 L472.4,547.5 L510.4,546.6 L498.6,737.4 L515.8,754.6 L561.0,756.4 L562.9,737.4 L535.7,710.3 L537.5,663.2 L559.2,599.0 L568.3,609.9 L576.4,689.5 L609.9,702.1 L641.5,698.5 L611.7,662.3 L604.5,552.9 L629.8,535.7 L649.7,488.7 L759.1,431.7 L781.7,431.7 L808.0,453.4 L871.3,442.6 L874.0,421.8 L853.2,378.4 L916.5,373.8 L940.0,355.7 L883.0,320.5 L854.1,316.9 L884.8,287.9 L883.0,262.6 L865.8,240.9 L749.2,259.0 L710.3,250.8 L685.0,268.9 L571.9,234.6 L476.9,234.6 L395.5,253.5 L207.4,214.7 L131.4,266.2 L89.8,279.8 L60.0,342.2 Z" }
+};
+
+// =========================================================================
+// STEP DEFINITIONS
+// =========================================================================
+
+// ---- DEAD CATTLE (claim documentation) ----
+// Per your instruction: Rear View is NOT used for dead cattle -- removed.
+const DEAD_STEPS = [
+  { id:"flank", label:"Flank", sided:true, required:true, domain:"dead",
+    variants:{left:"left_flank", right:"right_flank"},
+    hint:"Stand to the animal's visible side, fit the full body in the outline" },
+  { id:"head", label:"Head", sided:true, required:true, domain:"dead",
+    variants:{left:"front_view_left", right:"front_view_right"},
+    secondaryModel:true,   // also runs the horns/ear_tag model alongside head orientation, see SECONDARY_MODEL_CONFIG
+    hint:"Capture the head from whichever angle is visible, fill the outline" },
+  { id:"muzzle", label:"Muzzle", sided:false, required:true, domain:"dead", border:"muzzle",
+    hint:"Get close to the nose, fill the outline with the muzzle" },
+  { id:"ear_tag", label:"Ear Tag", sided:false, required:true, domain:"dead", border:"ear_tag",
+    hint:"Get close to the ear tag, keep the numbers readable" },
+  { id:"owner_photo", label:"Owner Photo", sided:false, required:true, domain:"dead", freeform:true,
+    hint:"Photograph the owner with the animal — tap capture when ready" },
+  { id:"video", label:"Video", sided:false, required:true, domain:"dead", video:true,
+    hint:"Tap to record a 60 second video of the animal" },
+  { id:"scar_injury", label:"Scar/Injury", sided:false, required:false, domain:"dead", freeform:true,
+    hint:"Optional — capture any visible scar or injury, tap capture when ready" },
+  { id:"geotag", label:"Geotag", sided:false, required:true, domain:"dead", geotag:true, geotagSource:"flank",
+    hint:"Tap to generate a geotagged version of your Flank photo" },
+];
+
+// ---- LIVE CATTLE (underwriting documentation) ----
+const LIVE_STEPS = [
+  { id:"flank_live", label:"Flank", sided:true, required:true, domain:"live",
+    variants:{left:"left_side_live", right:"right_side_live"},
+    hint:"Stand to the animal's visible side, keep the whole body in frame" },
+  { id:"front_view_live", label:"Front Head", sided:false, required:true, domain:"live", border:"front_head_live",
+    secondaryModel:true,   // also runs the horns/ear_tag model alongside front head, see SECONDARY_MODEL_CONFIG
+    hint:"Face the animal's head directly, keep it centered in frame" },
+  { id:"rear_view_live", label:"Rear View", sided:false, required:true, domain:"live", border:"rear_view_live",
+    hint:"Stand directly behind the animal, fit rump and legs in frame" },
+  { id:"muzzle_live", label:"Muzzle", sided:false, required:true, domain:"live", border:"muzzle",
+    hint:"Get close to the nose, fill the outline with the muzzle" },
+  { id:"ear_tag_live", label:"Ear Tag", sided:false, required:true, domain:"live", border:"ear_tag",
+    hint:"Get close to the ear tag, keep the numbers readable" },
+  { id:"owner_photo_live", label:"Owner Photo", sided:false, required:true, domain:"live", freeform:true,
+    hint:"Photograph the owner with the animal — tap capture when ready" },
+  { id:"video_live", label:"Video", sided:false, required:true, domain:"live", video:true,
+    hint:"Tap to record a 60 second video of the animal" },
+  { id:"scar_injury_live", label:"Scar/Injury", sided:false, required:false, domain:"live", freeform:true,
+    hint:"Optional — capture any visible scar or injury, tap capture when ready" },
+  { id:"eardemo_live", label:"Ear Demo", sided:false, required:false, domain:"live", freeform:true,
+    hint:"Testing only — capture any ear tag photo, no detection gate, tap capture when ready" },
+  { id:"geotag_live", label:"Geotag", sided:false, required:true, domain:"live", geotag:true, geotagSource:"flank_live",
+    hint:"Tap to generate a geotagged version of your Flank photo" },
+];
+
+let currentDomain = "live";   // "dead" | "live" -- LIVE is now the default landing tab
+function activeStepList(){ return currentDomain === "dead" ? DEAD_STEPS : LIVE_STEPS; }
+function allNavSteps(){ return activeStepList(); }
+function requiredSteps(){ return activeStepList().filter(s => s.required); }
+
+// =========================================================================
+// MODEL CONFIG
+// =========================================================================
+
+// ---- COCO general "cow present" pre-filter (works for both domains) ----
+const COCO_MODEL_CONFIG = {
+  url: "https://raw.githubusercontent.com/kshitij435/cattle/main/yolov8n.onnx",
+  inputSize: 640,
+  targetClassId: 19,
+  targetClassName: "cow",
+  confThreshold: 0.4,
+  iouThreshold: 0.45,
+  minAreaFraction: 0.12
+};
+
+// ---- Dedicated, purpose-trained models. ----
+// ⚠️ PLACEHOLDER URLS: none of these 5 files are hosted yet. Upload each
+// .onnx to your GitHub "cattle" repo, then paste the raw.githubusercontent.com
+// link into the matching `url:` field below. Everything else is already
+// configured correctly from your real training results.
+const CATTLE_MODEL_CONFIG = {
+  // DEAD flank -- fixes flip-bug applied, final trained result 91.7% mAP50
+  flank: {
+    url: "https://raw.githubusercontent.com/kshitij435/cattle/main/left_right_flank_dead.onnx",   // flank_best.onnx (dead)
+    inputSize: 640,
+    classNames: ["flank_left", "flank_right"],
+    confThreshold: 0.4,
+    iouThreshold: 0.45
+  },
+  // DEAD head/front-view -- 87.5% mAP50. Known open issue: some false positives
+  // on non-head images, some left/right confusion (head_left weaker class).
+  // Remember: use iou=0.3 at inference, not the default 0.45, to avoid
+  // duplicate/overlapping boxes on the same head.
+  head: {
+    url: "https://raw.githubusercontent.com/kshitij435/cattle/main/head_left_right.onnx",   // head_best.onnx (dead)
+    inputSize: 640,
+    classNames: ["head_left", "head_right"],
+    confThreshold: 0.4,
+    iouThreshold: 0.3
+  },
+  // DEAD ear tag -- its own dedicated step now (previously only shown as a
+  // secondary box during Head). Reuses the same horns+ear_tag model,
+  // filtered to just the "ear_tag" class (index 0) so it gates readiness
+  // on its own here, same pattern as ear_tag_live below.
+  ear_tag: {
+    url: "https://raw.githubusercontent.com/kshitij435/cattle/main/eartags_horn.onnx",
+    inputSize: 640,
+    classNames: ["ear_tag", "horn"],
+    onlyClassIndex: 0,
+    confThreshold: 0.25,
+    iouThreshold: 0.45
+  },
+  // LIVE flank -- 94.6% mAP50, strong precision/recall balance
+  flank_live: {
+    url: "https://raw.githubusercontent.com/kshitij435/cattle/main/left_right_live.onnx",
+    inputSize: 640,
+    classNames: ["left side", "right side"],
+    confThreshold: 0.4,
+    iouThreshold: 0.45
+  },
+  // LIVE front head -- your strongest model, 99.0% mAP50 / 100% precision
+  front_view_live: {
+    url: "https://raw.githubusercontent.com/kshitij435/cattle/main/live_cattle_front_head.onnx",
+    inputSize: 640,
+    classNames: ["front_head"],
+    confThreshold: 0.4,
+    iouThreshold: 0.3
+  },
+  // LIVE rear view -- reused from the original dead-cattle rear-view model,
+  // per your instruction that rear view is only needed for live, not dead.
+  rear_view_live: {
+    url: "https://raw.githubusercontent.com/kshitij435/cattle/main/best.onnx",
+    inputSize: 640,
+    classNames: ["cattle-rear"],
+    confThreshold: 0.4,
+    iouThreshold: 0.45
+  },
+  // LIVE ear tag -- reusing the horns+ear_tag model, filtered to just the
+  // ear_tag class (class index 0 in that model's training: ['ear_tag','horn']).
+  ear_tag_live: {
+    url: "https://raw.githubusercontent.com/kshitij435/cattle/main/eartags_horn.onnx",   // horns_eartag_best.onnx
+    inputSize: 640,
+    classNames: ["ear_tag", "horn"],
+    onlyClassIndex: 0,   // <-- restricts detection to just "ear_tag", ignores "horn" for this step
+    confThreshold: 0.25,
+    iouThreshold: 0.45
+  }
+  // DEAD muzzle has no dedicated trained model -- falls back to the pixel heuristic (see analyzeTick).
+  // LIVE muzzle (muzzle_live) has no dedicated model either -- same fallback.
+};
+
+// ---- Secondary, informational-only models: run ALONGSIDE a step's primary model,
+// don't affect the green "ready" state, just show an extra box for context.
+// Used for: DEAD Head and LIVE Front Head both also show horn/ear_tag if visible.
+const SECONDARY_MODEL_CONFIG = {
+  head: {
+    url: "https://raw.githubusercontent.com/kshitij435/cattle/main/eartags_horn.onnx",
+    inputSize: 640,
+    classNames: ["ear_tag", "horn"],
+    confThreshold: 0.3,
+    iouThreshold: 0.45,
+    checkEveryNTicks: 3   // runs less often than the primary model, to keep phone performance reasonable
+  },
+  front_view_live: {
+    url: "https://raw.githubusercontent.com/kshitij435/cattle/main/eartags_horn.onnx",
+    inputSize: 640,
+    classNames: ["ear_tag", "horn"],
+    confThreshold: 0.3,
+    iouThreshold: 0.45,
+    checkEveryNTicks: 3
+  }
+};
+
+let currentStepIdx = 0;
+let stepSide = {};
+let captures = {};          // keyed by `${domain}_${stepId}` so dead/live never mix
+let currentStream = null;
+let audioAvailable = false;   // whether the mic actually granted -- checked before every recording
+let facingMode = "environment";
+let lastLocation = null;
+
+// NEW -- device MODEL (e.g. "SM-S921B"), separate from navigator.userAgent
+// above, which modern Chrome deliberately no longer includes for privacy
+// reasons (see User-Agent Reduction) -- the UA string alone can't tell
+// two different Android phones apart anymore. Fetched once via the
+// User-Agent Client Hints API (Chromium-only; silently stays null on
+// Firefox/Safari/older browsers, which simply don't have this API) and
+// cached here since it never changes during a session -- buildMetadata()
+// below just reads whatever this resolved to, rather than making every
+// single capture's metadata-building async to fetch it fresh each time.
+let deviceModelHint = null;
+async function initDeviceModelHint(){
+  try{
+    if(navigator.userAgentData && navigator.userAgentData.getHighEntropyValues){
+      const hints = await navigator.userAgentData.getHighEntropyValues(['model']);
+      if(hints && hints.model) deviceModelHint = hints.model;
+    }
+  }catch(err){
+    console.warn('Could not fetch device model hint (not fatal):', err);
+  }
+}
+initDeviceModelHint();  // fire-and-forget at load -- resolves well before the first real capture in practice
+let locationStatus = "pending";
+
+[...DEAD_STEPS, ...LIVE_STEPS].forEach(s => { if(s.sided) stepSide[s.id] = "left"; });
+
+// Dead Flank and Head deliberately store BOTH sides independently (see
+// chat) -- switching the Left/Right toggle no longer discards whichever
+// side was already captured, letting a person capture both if they want.
+// Every OTHER sided step (currently just Live Flank) keeps the original
+// single-slot-per-step behavior, where switching sides discards whatever
+// was there before.
+function isDualSideStep(step){ return step.id === "flank" || step.id === "head" || step.id === "flank_live"; }
+function sidesForDualStep(step){ return [step.domain+"_"+step.id+"_left", step.domain+"_"+step.id+"_right"]; }
+
+function captureKey(step){
+  if(isDualSideStep(step)) return step.domain + "_" + step.id + "_" + stepSide[step.id];
+  return step.domain + "_" + step.id;
+}
+// "Done" for a dual-side step means EITHER side has a capture, not
+// specifically whichever side happens to be toggled right now.
+function stepIsDone(step){
+  if(isDualSideStep(step)) return sidesForDualStep(step).some(k => !!captures[k]);
+  return !!captures[captureKey(step)];
+}
+// For thumbnails: prefer whatever the currently-toggled side has, but fall
+// back to the OTHER side if that's the one actually captured -- so the
+// thumbnail doesn't look empty just because the toggle happens to be on
+// the side that wasn't captured.
+function representativeCapture(step){
+  if(isDualSideStep(step)){
+    const current = captures[captureKey(step)];
+    if(current) return current;
+    const [leftKey, rightKey] = sidesForDualStep(step);
+    return captures[leftKey] || captures[rightKey] || null;
+  }
+  return captures[captureKey(step)] || null;
+}
+
+// Geotag pulls its source photo from Flank (dead: "flank", live: "flank_live"
+// via step.geotagSource) -- now that Flank stores Left/Right independently,
+// there's no single non-side-specific key to look up anymore. Geotag
+// doesn't care WHICH side, just that ONE exists -- so check both and use
+// whichever is actually there (preferring Left if somehow both exist,
+// though which one wins doesn't matter for this purpose).
+// =========================================================================
+
+function findGeotagSourceCap(step){
+  const leftKey  = step.domain + "_" + step.geotagSource + "_left";
+  const rightKey = step.domain + "_" + step.geotagSource + "_right";
+  return captures[leftKey] || captures[rightKey] || null;
+}
+
+const chipScroll   = document.getElementById('chipScroll');
+const sideToggle    = document.getElementById('sideToggle');
+const sideLeftBtn   = document.getElementById('sideLeftBtn');
+const sideRightBtn  = document.getElementById('sideRightBtn');
+const thumbStrip    = document.getElementById('thumbStrip');
+const guideMain     = document.getElementById('guideMain');
+const guideHalo     = document.getElementById('guideHalo');
+const guideLabel    = document.getElementById('guideLabel');
+const camHint       = document.getElementById('camHint');
+const qualityDebug       = document.getElementById('qualityDebug');
+const qualityDebugToggle = document.getElementById('qualityDebugToggle');
+let qualityDebugOn = false;
+qualityDebugToggle.addEventListener('click', () => {
+  qualityDebugOn = !qualityDebugOn;
+  qualityDebug.style.display = qualityDebugOn ? 'block' : 'none';
+  qualityDebugToggle.style.background = qualityDebugOn ? 'rgba(140,198,63,.85)' : 'rgba(0,0,0,.55)';
+  qualityDebugToggle.style.color = qualityDebugOn ? '#1b1608' : '#e7ebe0';
+});
+// Last-computed numbers, written by assessBasicFrameQuality/analyzeCattlePartFrame
+// each tick, read here so the debug overlay always reflects THIS frame --
+// avoids recomputing anything just to display it.
+let lastQualityReadout = { brightness:null, sharpness:null, occupancy:null, videoRes:null };
+// Pixel-Size Normalization (see NORMALIZE_CONFIG below) -- the most
+// recent successfully-matched bounding box, in video pixel coordinates,
+// plus the video resolution it was measured against. Read once, at the
+// moment of capture, to scale the saved photo so the animal/part occupies
+// a consistent pixel size regardless of how close or far it was shot from.
+let lastMatchedBox = null;
+let lastMatchedBoxVideoRes = null;
+function renderQualityDebug(){
+  if(!qualityDebugOn) return;
+  const q = lastQualityReadout;
+  const stepId = currentStep() ? currentStep().id : null;
+  const stepCfg = stepId ? (OCCUPANCY_BAND_CONFIG[stepId] || {}) : {};
+  const stepMax = stepCfg.max != null ? stepCfg.max : null;
+  const effectiveMin = stepCfg.min != null ? stepCfg.min : FRAME_QUALITY_CONFIG.minOccupancyRatio;   // NEW -- was always reading the global floor, ignoring any per-step min override
+  const occupancyWant = stepMax != null
+    ? `${(effectiveMin*100).toFixed(0)}–${(stepMax*100).toFixed(0)}%`
+    : `≥${(effectiveMin*100).toFixed(0)}%`;
+  qualityDebug.textContent =
+    `res: ${q.videoRes || '—'}\n` +
+    `brightness: ${q.brightness !== null ? q.brightness.toFixed(0) : '—'} (40–230)\n` +
+    `sharpness:  ${q.sharpness !== null ? q.sharpness.toFixed(1) : '—'} (≥${POST_CAPTURE_SHARPNESS_CONFIG.minSharpness})\n` +
+    `occupancy:  ${q.occupancy !== null ? (q.occupancy*100).toFixed(1)+'%' : '—'} (${occupancyWant})`;
+}
+const camHintText   = document.getElementById('camHintText');
+const reqNote       = document.getElementById('reqNote');
+const video         = document.getElementById('video');
+const frameImg      = document.getElementById('frameImg');
+const playbackVideo = document.getElementById('playbackVideo');
+const elaImg         = document.getElementById('elaImg');
+const elaToggleBtn   = document.getElementById('elaToggleBtn');
+const elaControls      = document.getElementById('elaControls');
+const elaQualitySlider = document.getElementById('elaQualitySlider');
+const elaOpacitySlider = document.getElementById('elaOpacitySlider');
+const elaQualityVal    = document.getElementById('elaQualityVal');
+const elaOpacityVal    = document.getElementById('elaOpacityVal');
+const elaRegenStatus   = document.getElementById('elaRegenStatus');
+const ELA_AMPLIFY_FIXED = 15;   // fixed now that amplification isn't a user-facing slider
+let currentCapForEla = null;   // the capture currently being reviewed, so sliders know what to regenerate from
+let elaRegenTimeout = null;
+
+async function regenerateElaFromSliders(){
+  if(!currentCapForEla) return;
+  const quality = parseInt(elaQualitySlider.value, 10) / 100;
+  elaQualityVal.textContent = elaQualitySlider.value + "%";
+  elaRegenStatus.textContent = "Regenerating...";
+  elaImg.classList.add('regenerating');   // dim the PREVIOUS result instead of it vanishing while the new one computes
+  try{
+    const newEla = await generateELA(currentCapForEla.dataUrl, quality, ELA_AMPLIFY_FIXED, 900);
+    currentCapForEla.elaDataUrl = newEla;   // keep the capture's stored version in sync too
+    elaImg.src = newEla;
+    elaRegenStatus.textContent = "";
+  }catch(err){
+    console.warn("ELA regeneration failed:", err);
+    elaRegenStatus.textContent = "Regeneration failed — try again.";
+  } finally {
+    elaImg.classList.remove('regenerating');
+  }
+}
+function scheduleElaRegen(){
+  clearTimeout(elaRegenTimeout);
+  elaRegenStatus.textContent = "Adjusting...";
+  elaRegenTimeout = setTimeout(regenerateElaFromSliders, 300);   // debounced -- avoids regenerating on every tiny drag tick
+}
+// Opacity is a pure CSS change -- instant, no regeneration needed. At 0
+// the heatmap is fully transparent, so the ORIGINAL photo underneath
+// shows through completely, letting you compare by dragging back and
+// forth rather than a hard on/off toggle.
+function applyElaOpacity(){
+  const pct = parseInt(elaOpacitySlider.value, 10);
+  elaOpacityVal.textContent = pct + "%";
+  elaImg.style.opacity = pct / 100;
+}
+elaQualitySlider.addEventListener('input', scheduleElaRegen);
+elaOpacitySlider.addEventListener('input', applyElaOpacity);
+const recIndicator  = document.getElementById('recIndicator');
+const recCountdownText = document.getElementById('recCountdownText');
+const viewfinder    = document.getElementById('viewfinder');
+const shutterBtn    = document.getElementById('shutterBtn');
+const switchBtn     = document.getElementById('switchBtn');
+const galleryBtn    = document.getElementById('galleryBtn');
+const refBtn         = document.getElementById('refBtn');
+const refBtnThumb    = document.getElementById('refBtnThumb');
+const refLightbox        = document.getElementById('refLightbox');
+const refLightboxImg     = document.getElementById('refLightboxImg');
+const refLightboxCaption = document.getElementById('refLightboxCaption');
+const refLightboxClose   = document.getElementById('refLightboxClose');
+
+// ---------- Custom in-app alert (replaces native alert(), which shows the
+// site's URL as an uneditable browser-controlled title bar) ----------
+const appAlertBackdrop = document.getElementById('appAlertBackdrop');
+const appAlertText     = document.getElementById('appAlertText');
+const appAlertOk       = document.getElementById('appAlertOk');
+function showAppAlert(message){
+  return new Promise((resolve) => {
+    appAlertText.textContent = message;
+    appAlertBackdrop.classList.add('show');
+    const onOk = () => {
+      appAlertBackdrop.classList.remove('show');
+      appAlertOk.removeEventListener('click', onOk);
+      resolve();
+    };
+    appAlertOk.addEventListener('click', onOk);
+  });
+}
+const fileInput     = document.getElementById('fileInput');
+const camError      = document.getElementById('camError');
+const progressFill  = document.getElementById('progressFill');
+const progressCount = document.getElementById('progressCount');
+const gpsPill       = document.getElementById('gpsPill');
+const metaBar       = document.getElementById('metaBar');
+const metaTime      = document.getElementById('metaTime');
+const metaGps       = document.getElementById('metaGps');
+const exportBtn     = document.getElementById('exportBtn');
+const partBox       = document.getElementById('partBox');
+const partBox2      = document.getElementById('partBox2');
+const partBox2Tag   = document.getElementById('partBox2Tag');
+const partBox3      = document.getElementById('partBox3');
+const partBox3Tag   = document.getElementById('partBox3Tag');
+const partBoxTag    = document.getElementById('partBoxTag');
+const brandSubtitle = document.getElementById('brandSubtitle');
+const modeDeadBtn   = document.getElementById('modeDeadBtn');
+const modeLiveBtn   = document.getElementById('modeLiveBtn');
+
+function currentStep(){ return allNavSteps()[currentStepIdx]; }
+function borderKeyFor(step){ return step.sided ? step.variants[stepSide[step.id]] : step.border; }
+
+function switchDomain(domain){
+  if(domain === currentDomain) return;
+  currentDomain = domain;
+  modeDeadBtn.classList.toggle('active', domain === 'dead');
+  modeLiveBtn.classList.toggle('active', domain === 'live');
+  brandSubtitle.textContent = domain === 'dead'
+    ? "Dead Cattle — Guided Photo Capture"
+    : "Live Cattle — Guided Photo Capture";
+  currentStepIdx = 0;
+  selectStep(0);
+  updateProgress();
+  saveSessionState(); // NEW
+}
+modeDeadBtn.addEventListener('click', () => switchDomain('dead'));
+modeLiveBtn.addEventListener('click', () => switchDomain('live'));
+
+function buildChips(){
+  chipScroll.innerHTML = "";
+  allNavSteps().forEach((s, idx) => {
+    const chip = document.createElement('div');
+    const done = stepIsDone(s);
+    chip.className = 'chip' + (idx===currentStepIdx ? ' active':'') + (done ? ' done':'');
+    chip.innerHTML = `<span class="dot"></span><span>${s.label}</span>`;
+    chip.addEventListener('click', () => selectStep(idx));
+    chipScroll.appendChild(chip);
+  });
+}
+
+function buildThumbs(){
+  thumbStrip.innerHTML = "";
+  allNavSteps().forEach((s, idx) => {
+    const t = document.createElement('div');
+    t.className = 'thumb' + (idx===currentStepIdx ? ' active':'');
+    const cap = representativeCapture(s);
+    if(cap){
+      t.innerHTML = `<img src="${cap.dataUrl}"><div class="tag">${s.label}</div>`;
+    } else {
+      t.innerHTML = `<div class="placeholder">＋</div><div class="tag">${s.label}</div>`;
+    }
+    t.addEventListener('click', () => selectStep(idx));
+    thumbStrip.appendChild(t);
+  });
+}
+
+function updateProgress(){
+  const req = requiredSteps();
+  const done = req.filter(s => stepIsDone(s)).length;
+  progressFill.style.width = (done/req.length*100) + "%";
+  progressCount.textContent = `${done} / ${req.length}`;
+  exportBtn.classList.toggle('show', done === req.length);
+}
+
+function updateSideToggleUI(step){
+  if(!step.sided){ sideToggle.classList.remove('show'); return; }
+  sideToggle.classList.add('show');
+  const side = stepSide[step.id];
+  sideLeftBtn.classList.toggle('active', side==='left');
+  sideRightBtn.classList.toggle('active', side==='right');
+}
+
+function selectStep(idx){
+  currentStepIdx = idx;
+  const step = currentStep();
+
+  partBox.style.display = 'none';
+  partBox2.style.display = 'none';
+  partBox3.style.display = 'none';
+  recIndicator.classList.remove('show');
+  shutterBtn.classList.remove('recording');
+  debugReset();
+  updateSideToggleUI(step);
+  updateRefButton(step);
+  // Gallery upload IS allowed for Geotag steps -- lets you upload a photo
+  // already stamped by a dedicated app (e.g. "GPS Map Camera"), as an
+  // alternative to tapping capture to auto-generate one from the Flank photo.
+  // Gallery Upload removed entirely, by explicit decision -- every photo
+  // step is now Live-Capture-only. Reasoning: the field workflow captures
+  // every required photo (including Owner Photo and Scar/Injury) in one
+  // continuous live session anyway, so Gallery Upload wasn't actually
+  // needed for the "poor rural network" case it was originally kept for
+  // (Live Capture's own offline queue already handles that). Removing it
+  // also closes the specific gap where a gallery-selected photo's clock
+  // tampering couldn't be verified (Android's Photo Picker strips GPS
+  // data before it ever reaches the browser, and file-editor tools can
+  // rewrite EXIF directly -- see the extended discussion on this).
+  // Video already had no gallery-upload equivalent at all.
+  //
+  // ⚠️ TEMPORARILY RE-ENABLED FOR TESTING ONLY (the line below is
+  // commented out, not removed) -- needed to test whether Error Level
+  // Analysis / Tamper Check can detect AI-edited images when the actual
+  // edited FILE is uploaded directly, since Live Capture's one-pass
+  // camera JPEG encode erases the compression-history evidence ELA
+  // depends on (confirmed: re-photographing an AI-edited image off a
+  // screen via Live Capture cannot carry that evidence through at all --
+  // this isn't a weeaker signal, it's genuinely gone by the time ELA runs).
+  // RE-HIDE by uncommenting the line below once this testing is done --
+  // the underlying reasons Gallery Upload was removed (above) still apply
+  // for real field use; this is a deliberate, temporary exception.
+  // galleryBtn.style.display = 'none';
+  maskBoxKey = "";
+  readyStreak = 0; isReady = false;
+  guideMain.classList.remove('ready'); guideHalo.classList.remove('ready'); camHint.classList.remove('ready');
+
+  if(!step.sided && !step.border){
+    // LIVE steps with no static traced outline, plus freeform/video steps
+    // (Owner Photo, Scar/Injury, Video) -- no detection UI needed.
+    viewfinder.classList.remove('demo-mode');
+    guideMain.setAttribute('d', '');
+    guideHalo.setAttribute('d', '');
+    guideLabel.textContent = step.label;
+    camHintText.textContent = step.hint;
+    reqNote.innerHTML = `<b>${step.label}:</b> ${step.hint}`;
+  } else {
+    viewfinder.classList.remove('demo-mode');
+    const key = borderKeyFor(step);
+    const b = BORDERS[key];
+    guideMain.setAttribute('d', b ? b.path : '');
+    guideHalo.setAttribute('d', b ? b.path : '');
+    guideLabel.textContent = b ? b.label : step.label;
+    camHintText.textContent = step.hint;
+    reqNote.innerHTML = `<b>${(b?b.label:step.label)}:</b> ${step.hint}`;
+  }
+
+  const cap = captures[captureKey(step)];
+  if(cap){ showCaptured(cap); } else { showLive(); }
+  buildChips();
+  buildThumbs();
+}
+
+[["left",sideLeftBtn],["right",sideRightBtn]].forEach(([side, el]) => {
+  el.addEventListener('click', () => {
+    const step = currentStep();
+    if(!step.sided) return;
+    if(stepSide[step.id] === side) return;
+    // Dead Flank/Head keep BOTH sides' captures independently (the
+    // side-aware captureKey above handles that automatically) -- only
+    // clear the slot for other sided steps (currently just Live Flank),
+    // which still use a single shared slot regardless of side.
+    const keepsBothSides = isDualSideStep(step);
+    stepSide[step.id] = side;
+    if(!keepsBothSides && captures[captureKey(step)]) delete captures[captureKey(step)];
+    selectStep(currentStepIdx);
+    updateProgress();
+    saveSessionState(); // NEW
+  });
+});
+
+function mapsUrl(lat, lon){ return `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`; }
+function shortDevice(ua){
+  let platform = /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Windows/.test(ua) ? "Windows" : /Mac/.test(ua) ? "Mac" : "Unknown";
+  let browser = /Chrome\/([\d.]+)/.test(ua) ? "Chrome " + ua.match(/Chrome\/([\d.]+)/)[1].split('.')[0]
+              : /Firefox\/([\d.]+)/.test(ua) ? "Firefox " + ua.match(/Firefox\/([\d.]+)/)[1].split('.')[0]
+              : /Version\/([\d.]+).*Safari/.test(ua) ? "Safari " + ua.match(/Version\/([\d.]+)/)[1].split('.')[0]
+              : "Browser";
+  return `${platform} · ${browser}`;
+}
+
+function showCaptured(cap){
+  // Detection boxes are LIVE overlays tied to the video feed -- once a
+  // static photo is captured, they'd otherwise freeze in place on top of
+  // it, misleadingly implying ongoing analysis. Hide them, same as the
+  // guide outline SVG already does on capture.
+  partBox.style.display = 'none';
+  partBox2.style.display = 'none';
+  partBox3.style.display = 'none';
+
+  if(cap.isVideo){
+    frameImg.style.display = 'none';
+    playbackVideo.style.display = 'block';
+    playbackVideo.src = cap.videoBlobUrl;
+    playbackVideo.currentTime = 0;
+  } else {
+    playbackVideo.style.display = 'none';
+    playbackVideo.removeAttribute('src');
+    frameImg.style.display = 'block';
+    frameImg.src = cap.dataUrl;
+  }
+  viewfinder.classList.add('captured');
+  shutterBtn.classList.add('retake-mode');
+  metaTime.textContent = "🕒 " + cap.meta.timeLabel;
+  metaGps.textContent = "📍 " + cap.meta.gpsLabel;
+
+  reqNote.style.display = 'none';
+  document.getElementById('metaPanel').classList.add('show');
+  document.getElementById('mpTime').textContent = cap.meta.timeLabel;
+  document.getElementById('mpSide').textContent = cap.side ? (cap.side==='left' ? 'Left' : 'Right') : '—';
+  document.getElementById('mpSource').textContent = sourceLabelFor(cap.meta);
+  document.getElementById('mpRes').textContent = cap.meta.resolution || '—';
+  document.getElementById('mpDevice').textContent = shortDevice(cap.meta.device);
+  const mpGps = document.getElementById('mpGps');
+  if(cap.meta.lat!=null){
+    mpGps.innerHTML = `<a href="${mapsUrl(cap.meta.lat, cap.meta.lon)}" target="_blank" rel="noopener">${cap.meta.lat.toFixed(5)}, ${cap.meta.lon.toFixed(5)} ↗</a>`;
+  } else {
+    mpGps.textContent = cap.meta.gpsLabel || "Unavailable";
+  }
+
+  renderBackendIntegrityFields(cap);
+
+  // ELA toggle -- TESTING ONLY, shown per current instructions. Only
+  // relevant for gallery-uploaded photos where ELA was actually computed.
+  // elaImg now overlays ON TOP of frameImg with adjustable opacity, rather
+  // than replacing it, so frameImg always stays visible once a photo is
+  // captured.
+  elaImg.style.display = 'none';
+  elaImg.style.opacity = 1;
+  frameImg.style.display = cap.isVideo ? 'none' : 'block';
+  elaToggleBtn.classList.remove('active');
+  elaToggleBtn.textContent = "🔍 View Error Level Analysis (testing only)";
+  elaControls.classList.remove('show');
+  document.getElementById('metaPanel').classList.remove('ela-mode');
+  currentCapForEla = null;
+  if(cap.elaDataUrl){
+    elaImg.src = cap.elaDataUrl;
+    elaToggleBtn.style.display = 'block';
+    // Reset sliders to defaults for each newly-reviewed photo.
+    elaQualitySlider.value = 90;
+    elaOpacitySlider.value = 95;
+    elaQualityVal.textContent = "90%";
+    elaOpacityVal.textContent = "95%";
+    elaRegenStatus.textContent = "";
+    elaToggleBtn.onclick = () => {
+      const showingEla = elaToggleBtn.classList.toggle('active');
+      elaImg.style.display = showingEla ? 'block' : 'none';
+      if(showingEla) applyElaOpacity();   // apply whatever the opacity slider is currently set to
+      elaControls.classList.toggle('show', showingEla);
+      // Free up vertical space for the photo by hiding the metadata rows
+      // while reviewing ELA -- not needed for this check, and competing
+      // for the same limited screen space was squeezing the image down
+      // to a sliver.
+      document.getElementById('metaPanel').classList.toggle('ela-mode', showingEla);
+      currentCapForEla = showingEla ? cap : null;
+      elaToggleBtn.textContent = showingEla
+        ? "🔍 Hide Error Level Analysis"
+        : "🔍 View Error Level Analysis (testing only)";
+    };
+  } else {
+    elaToggleBtn.style.display = 'none';
+    elaToggleBtn.onclick = null;
+  }
+
+  // Automated tamper-check score (0-100). Runs for BOTH gallery uploads
+  // and live captures (live capture support added at explicit request --
+  // see chat: this technique detects evidence of EDITING, and a live
+  // photo goes straight from camera sensor to canvas with no editing step
+  // in between, so it has no real signal to work with here and should be
+  // expected to reliably show "clean"/low-score regardless of anything
+  // real -- kept for UI consistency, not because it's meaningful for live
+  // captures). For anything else (freeform/video/geotag/demo steps), show
+  // "Not applicable" rather than hiding the row, so it's clear the check
+  // was intentionally skipped rather than silently missing.
+  //
+  // Shown as a SCORE with a band label, not a hard verdict -- deliberate,
+  // given everything today's real testing found: this technique has real,
+  // non-obvious blind spots (see the honesty note on TAMPER_CHECK_CONFIG),
+  // so presenting a confident-sounding binary "clean/suspicious" would
+  // overstate what this actually knows. A low score means "nothing found
+  // by this check", not "verified genuine".
+  const mpTamperRow = document.getElementById('mpTamperRow');
+  const mpTamperBadge = document.getElementById('mpTamperBadge');
+  const mpTamperDetail = document.getElementById('mpTamperDetail');
+  if(!cap.isVideo && cap.meta && (cap.meta.source === 'camera' || cap.meta.source === 'gallery' || cap.meta.source === 'geotag-generated')){
+    mpTamperRow.style.display = '';
+    if(cap.tamperVerdict){
+      const v = cap.tamperVerdict;
+      const bandIcon = v.band === 'elevated' ? '⚠️' : v.band === 'uncertain' ? '❔' : '✅';
+      const bandLabel = v.band === 'elevated' ? 'Elevated' : v.band === 'uncertain' ? 'Uncertain' : 'Low';
+      mpTamperBadge.className = `tamper-badge ${v.band}`;
+      mpTamperBadge.textContent = `${bandIcon} ${v.score}/100 — ${bandLabel} likelihood of editing`;
+      mpTamperDetail.style.display = 'block';
+      const effectiveSource = cap.meta.source === 'geotag-generated' ? cap.meta.originalSource : cap.meta.source;
+      mpTamperDetail.textContent = (effectiveSource === 'camera')
+        ? `Not meaningful for live captures — this check looks for signs of prior editing, which a live photo never has. Expect this to always show low/clean, regardless of anything real. Shown for consistency only.`
+        : `Not a verdict — an automated estimate only. A low score means nothing suspicious was found by this check, not that the photo is confirmed genuine.`;
+    } else {
+      mpTamperBadge.className = 'tamper-badge na';
+      mpTamperBadge.textContent = cap.tamperChecking ? '⏳ Checking…' : 'Not checked';
+      mpTamperDetail.style.display = 'none';
+    }
+  } else {
+    mpTamperRow.style.display = 'none';
+    mpTamperDetail.style.display = 'none';
+  }
+
+  // Pixel-Size Normalization -- INFRASTRUCTURE ONLY display, no consumer
+  // of the number yet. Shown here purely so this can actually be
+  // tested/verified, same reasoning as the live Frame Quality debug
+  // overlay -- infra with no visible readout isn't testable.
+  // normalizeScaleApplied is set synchronously at capture time.
+  const mpNormalizeRow = document.getElementById('mpNormalizeRow');
+  const mpNormalizeBadge = document.getElementById('mpNormalizeBadge');
+  if(!cap.isVideo && cap.meta && cap.meta.source === 'camera' && cap.normalizeScaleApplied != null){
+    mpNormalizeRow.style.display = '';
+    if(cap.normalizeSkipped){
+      mpNormalizeBadge.className = 'tamper-badge na';
+      mpNormalizeBadge.textContent = cap.normalizeSkipReason === 'exceeds-max-upscale'
+        ? '⚠️ Skipped — too far for reliable scaling'
+        : 'Not applied (no detected box)';
+    } else if(cap.normalizeScaleApplied === 1){
+      mpNormalizeBadge.className = 'tamper-badge low';
+      mpNormalizeBadge.textContent = '✅ Already at target size';
+    } else {
+      mpNormalizeBadge.className = cap.normalizeScaleApplied > 1 ? 'tamper-badge uncertain' : 'tamper-badge low';
+      mpNormalizeBadge.textContent = `✅ ${cap.normalizeScaleApplied}x ${cap.normalizeScaleApplied > 1 ? 'upscaled' : 'downscaled'}`;
+    }
+  } else {
+    mpNormalizeRow.style.display = 'none';
+  }
+
+  // Capture Sharpness -- the post-capture blur re-check (bug fix: closes
+  // the timing gap between the live gate's last check and the actual
+  // moment of the tap, see assessCanvasSharpness's comment). Flagged for
+  // review, NOT auto-rejected -- the photo was already taken.
+  const mpBlurRow = document.getElementById('mpBlurRow');
+  const mpBlurBadge = document.getElementById('mpBlurBadge');
+  if(!cap.isVideo && cap.meta && cap.meta.source === 'camera' && cap.postCaptureSharpness != null){
+    mpBlurRow.style.display = '';
+    if(cap.postCaptureBlurWarning){
+      mpBlurBadge.className = 'tamper-badge elevated';
+      mpBlurBadge.textContent = `⚠️ Looks blurry (${cap.postCaptureSharpness.toFixed(1)}) — consider retaking`;
+    } else {
+      mpBlurBadge.className = 'tamper-badge low';
+      mpBlurBadge.textContent = `✅ Sharp (${cap.postCaptureSharpness.toFixed(1)})`;
+    }
+  } else {
+    mpBlurRow.style.display = 'none';
+  }
+
+  // AI Provenance Check -- see checkAiProvenance's honesty note above
+  // before trusting this. Gallery Upload ONLY (cap.meta.source ===
+  // 'gallery') -- meaningless on Live Capture, since the canvas re-encode
+  // strips this metadata unconditionally regardless of what a Live
+  // Capture photo actually shows.
+  const mpAiProvRow = document.getElementById('mpAiProvRow');
+  const mpAiProvBadge = document.getElementById('mpAiProvBadge');
+  const mpAiProvDetail = document.getElementById('mpAiProvDetail');
+  if(!cap.isVideo && cap.meta && cap.meta.source === 'gallery' && cap.aiProvenance && cap.aiProvenance.checked){
+    mpAiProvRow.style.display = '';
+    if(cap.aiProvenance.aiDisclosed){
+      mpAiProvBadge.className = 'tamper-badge elevated';
+      mpAiProvBadge.textContent = `⚠️ AI editing disclosed in file metadata`;
+      mpAiProvDetail.style.display = '';
+      mpAiProvDetail.textContent = `Marker(s) found: ${cap.aiProvenance.markers.join(', ')}. This reads a voluntary disclosure some AI tools embed in the file -- it does not prove the reverse (no marker ≠ definitely not AI-edited, since this is trivially stripped or absent from non-compliant tools).`;
+    } else if(cap.aiProvenance.humanEditDisclosed){
+      mpAiProvBadge.className = 'tamper-badge low';
+      mpAiProvBadge.textContent = `✅ No AI editing disclosed (human edit only)`;
+      mpAiProvDetail.style.display = 'none';
+    } else {
+      mpAiProvBadge.className = 'tamper-badge na';
+      mpAiProvBadge.textContent = `No provenance metadata found`;
+      mpAiProvDetail.style.display = '';
+      mpAiProvDetail.textContent = `This file carries no C2PA disclosure either way -- could mean genuinely untouched, or could mean any editing tool used (AI or not) simply didn't embed this metadata. Absence is not evidence of originality.`;
+    }
+  } else {
+    mpAiProvRow.style.display = 'none';
+    mpAiProvDetail.style.display = 'none';
+  }
+}
+function showLive(){
+  viewfinder.classList.remove('captured');
+  shutterBtn.classList.remove('retake-mode');
+  playbackVideo.pause();
+  playbackVideo.style.display = 'none';
+  frameImg.style.display = 'none';
+  elaImg.style.display = 'none';
+  elaToggleBtn.style.display = 'none';
+  elaControls.classList.remove('show');
+  currentCapForEla = null;
+  clearTimeout(elaRegenTimeout);
+  reqNote.style.display = '';
+  document.getElementById('metaPanel').classList.remove('show');
+  document.getElementById('metaPanel').classList.remove('ela-mode');
+}
+
+function initGeolocation(){
+  if(!("geolocation" in navigator)){
+    locationStatus = "unsupported";
+    gpsPill.textContent = "📍 GPS unavailable";
+    gpsPill.className = "gps-pill error";
+    return;
+  }
+  gpsPill.textContent = "📍 Locating…";
+  gpsPill.className = "gps-pill pending";
+  gpsPill.removeAttribute('href');
+
+  // A cold GPS fix with NO network assist (offline / airplane-mode-with-
+  // location-on) can genuinely take 30-60+ seconds -- far longer than a
+  // normal online fix. watchPosition's own timeout below is intentionally
+  // generous for that reason; this separate "stillWaiting" flag just lets
+  // us show the person a more honest, distinct message if it's simply
+  // slow rather than actually failed, instead of leaving them stuck on a
+  // spinner or misreporting a slow fix as "denied".
+  let gotFirstFix = false;
+  const stillWaitingTimer = setTimeout(() => {
+    if(!gotFirstFix){
+      gpsPill.textContent = "📍 Still locating (offline GPS can take a minute)…";
+    }
+  }, 15000);
+
+  navigator.geolocation.watchPosition(
+    (pos) => {
+      gotFirstFix = true;
+      clearTimeout(stillWaitingTimer);
+      lastLocation = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy };
+      locationStatus = "ok";
+      gpsPill.textContent = `📍 ${lastLocation.lat.toFixed(5)}, ${lastLocation.lon.toFixed(5)} ↗`;
+      gpsPill.className = "gps-pill linked";
+      gpsPill.href = mapsUrl(lastLocation.lat, lastLocation.lon);
+    },
+    (err) => {
+      console.warn("Geolocation error:", err.code, err.message);
+      locationStatus = "error";
+      gpsPill.className = "gps-pill error";
+      gpsPill.removeAttribute('href');
+      // err.code: 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT
+      // The old version showed "Location denied" for ALL three, which was
+      // misleading -- a slow/offline GPS timeout is not the same problem
+      // as a blocked permission, and needs a different fix from the user.
+      if(err.code === 1){
+        gpsPill.textContent = "📍 Location permission denied";
+      } else if(err.code === 3){
+        gpsPill.textContent = "📍 No GPS fix yet — tap to retry";
+      } else {
+        gpsPill.textContent = "📍 GPS signal unavailable";
+      }
+    },
+    { enableHighAccuracy:true, maximumAge:10000, timeout:60000 }
+  );
+}
+
+// Manual retry: tapping the pill while it's in an error state re-runs
+// geolocation from scratch, useful after stepping outside for a clearer
+// sky view rather than waiting for the browser's internal retry timing.
+// Registered once (not inside initGeolocation) so retries don't stack
+// multiple duplicate click listeners on top of each other.
+gpsPill.addEventListener('click', (e) => {
+  if(gpsPill.classList.contains('error')){
+    e.preventDefault();
+    initGeolocation();
+  }
+});
+
+// =========================================================================
+// EXIF GPS + capture-time parser -- for gallery-uploaded photos.
+// Fixes: uploading a photo from gallery was tagging it with the device's
+// CURRENT location (e.g. Delhi, if uploaded there later) instead of where
+// the photo was actually taken (e.g. Mumbai). This reads GPS coordinates
+// and the original capture timestamp directly out of the photo's own EXIF
+// data when present, so the claim reflects where/when the photo was
+// actually shot -- not where/when it happened to be uploaded.
+// NOTE: many apps (WhatsApp, Instagram, etc.) genuinely strip EXIF data
+// entirely when photos pass through them -- when that's happened, there is
+// truly nothing left to recover, from this or any other tool (confirmed:
+// ExifTool -- the real, industry-standard command-line tool -- was tested
+// against the same kind of stripped photos and found nothing either).
+//
+// =========================================================================
+// AI PROVENANCE CHECK (C2PA digitalSourceType) -- reads the standardized
+// IPTC/C2PA "digitalSourceType" disclosure some AI editing tools embed
+// directly in the file, rather than trying to detect editing from pixel
+// content the way ELA/Tamper Check do.
+//
+// ⚠️ VALIDATED, BUT A FUNDAMENTALLY DIFFERENT KIND OF SIGNAL -- READ
+// BEFORE TRUSTING THIS: tested against 13 real AI-edited photos and 13
+// real genuine originals (paired, same subjects, from an actual AI photo
+// enhancement tool) -- a clean, exact 13/13 vs 0/13 split. Every
+// AI-edited file carried digitalSourceType = compositeWithTrained
+// AlgorithmicMedia / trainedAlgorithmicMedia / algorithmicallyEnhanced;
+// every genuine original either had no C2PA data at all, or only the
+// unrelated "humanEdits" disclosure.
+//
+// BUT this is a VOLUNTARY DISCLOSURE the AI tool chose to write, not
+// forensic evidence extracted from the pixels -- fundamentally different
+// from ELA/Tamper Check/blur detection, all of which look for evidence
+// that's hard to fake. This check is trivially defeated by:
+//   - any tool that doesn't embed C2PA data in the first place
+//   - stripping metadata with any basic "remove metadata" tool
+//   - taking a screenshot of the edited image (screenshots carry none of
+//     the original file's embedded metadata)
+//   - Live Capture itself -- the canvas re-encode at capture time erases
+//     ALL embedded metadata unconditionally, honest or not, same root
+//     cause as the ELA/screen-photo blind spot discussed at length
+//     earlier. THIS IS WHY this check only runs on Gallery Upload below --
+//     running it on a Live Capture photo would be meaningless, since the
+//     metadata it depends on never survives that path.
+// In short: this reliably catches CASUAL, NON-ADVERSARIAL AI use (someone
+// enhancing a photo without thinking about what it's for) -- it provides
+// NO protection against anyone motivated to actually hide AI editing.
+// Keep both facts in mind when deciding how much weight to give a "clear"
+// result here.
+const AI_PROVENANCE_AI_MARKERS = [
+  'compositeWithTrainedAlgorithmicMedia',
+  'trainedAlgorithmicMedia',
+  'algorithmicallyEnhanced',
+];
+const AI_PROVENANCE_HUMAN_MARKER = 'humanEdits';
+
+async function checkAiProvenance(file){
+  try{
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    // Decode raw bytes to a binary-safe string so the embedded ASCII
+    // strings inside the C2PA/JUMBF metadata box can be searched
+    // directly -- matches the validated approach exactly (a full JUMBF/
+    // CBOR parser was tried and wasn't needed; simple substring search on
+    // the raw bytes found the same markers reliably). Chunked to avoid
+    // call-stack limits on large files.
+    let text = '';
+    const chunkSize = 65536;
+    for(let i = 0; i < bytes.length; i += chunkSize){
+      text += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+    }
+    const foundAiMarkers = AI_PROVENANCE_AI_MARKERS.filter(m => text.includes(m));
+    return {
+      checked: true,
+      aiDisclosed: foundAiMarkers.length > 0,
+      markers: foundAiMarkers,
+      humanEditDisclosed: text.includes(AI_PROVENANCE_HUMAN_MARKER),
+    };
+  }catch(err){
+    console.warn('AI provenance check failed:', err);
+    return { checked:false, aiDisclosed:false, markers:[], humanEditDisclosed:false };
+  }
+}
+
+
+// Uses exifr (https://github.com/MikeKovarik/exifr), a mature, widely used
+// library, instead of a hand-written byte parser. The earlier hand-written
+// version had a real, confirmed bug: it gave up immediately upon finding
+// the FIRST metadata segment if that segment wasn't EXIF (e.g. an XMP
+// segment written before the EXIF one), even when real EXIF/GPS data was
+// still sitting later in the same file. exifr handles this and many other
+// real-world file quirks correctly.
+async function parseExifGPSAndDate(file){
+  try{
+    // Safety timeout: if the CDN script somehow never fires either onload
+    // or onerror (rare, but possible on some flaky/blocked network
+    // conditions), don't let the whole gallery-upload flow hang forever
+    // waiting on it -- give up on EXIF after 8s and proceed without it.
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('exifr load timeout')), 8000));
+    await Promise.race([window.__exifrReady, timeout]);
+  }catch(err){
+    return { gps:null, dateTime:null, reason:"exifr-load-failed" };
+  }
+  if(typeof exifr === 'undefined'){
+    return { gps:null, dateTime:null, reason:"exifr-load-failed" };
+  }
+
+  let output;
+  try{
+    // NOTE: deliberately no `pick` filter here. An earlier version of this
+    // restricted `pick` to ['DateTimeOriginal', 'CreateDate', 'latitude',
+    // 'longitude'] -- but `pick` filters RAW EXIF tag names, and
+    // 'latitude'/'longitude' aren't raw tags; they're DERIVED fields exifr
+    // computes from the real raw tags (GPSLatitude, GPSLatitudeRef, etc.)
+    // AFTER parsing. That meant the GPS block matched nothing and was
+    // silently dropped every time -- confirmed with a real GPS-tagged test
+    // photo: the restricted version returned the date correctly but always
+    // returned undefined for latitude/longitude, no error thrown. Letting
+    // gps/exif parse fully (unrestricted) is what actually works.
+    output = await exifr.parse(file, { gps: true, exif: true });
+  }catch(err){
+    console.warn("exifr parse failed:", err);
+    // Surface the REAL error message in the returned reason (rather than
+    // just a generic "parse-failed" label) so it's actually visible to the
+    // person testing on a real phone with no dev console access -- lets us
+    // see exactly what's going wrong instead of guessing blind.
+    const detail = (err && err.message) ? err.message : String(err);
+    return { gps:null, dateTime:null, reason:"parse-failed", errorDetail: detail };
+  }
+
+  if(!output){
+    return { gps:null, dateTime:null, reason:"no-exif-data" };
+  }
+
+  let gps = null, reason = "no-gps-data";
+  if(typeof output.latitude === 'number' && typeof output.longitude === 'number'){
+    // Some cameras write a placeholder 0,0 when location was off at
+    // capture time -- same defensive check the old parser had.
+    if(Math.abs(output.latitude) < 0.0001 && Math.abs(output.longitude) < 0.0001){
+      reason = "zero-gps";
+    } else {
+      gps = { lat: output.latitude, lon: output.longitude };
+      reason = "ok";
+    }
+  }
+
+  // exifr already revives EXIF dates into real Date objects -- no need for
+  // the old separate parseExifDateString() string-parsing step.
+  const dateTime = (output.DateTimeOriginal instanceof Date) ? output.DateTimeOriginal
+                  : (output.CreateDate instanceof Date) ? output.CreateDate
+                  : null;
+
+  return { gps, dateTime, reason };
+}
+// =========================================================================
+// TIME ANCHOR -- NEW addition (not in your original), needed for the
+// Matrix sheet's server-anchored timestamp scenarios. Everything else in
+// this file is your original code, unchanged. See buildMetadata() below
+// for the one-line change that uses this instead of a raw `new Date()`.
+// =========================================================================
+const TIME_ENDPOINTS = [
+  { url: 'https://worldtimeapi.org/api/timezone/Etc/UTC', parse: (d) => new Date(d.utc_datetime).getTime() },
+  { url: 'https://timeapi.io/api/Time/current/zone?timeZone=UTC', parse: (d) => new Date(d.dateTime + 'Z').getTime() },
+];
+const TIME_FETCH_TIMEOUT_MS = 4000;
+const CLOCK_CHANGE_TOLERANCE_MS = 5000;
+let timeAnchor = null;
+async function fetchWithTimeout_(url, ms){
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), ms);
+  try{
+    const resp = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+    clearTimeout(t);
+    if(!resp.ok) return null;
+    return await resp.json();
+  }catch(err){ clearTimeout(t); return null; }
+}
+async function fetchTrustedTime_(){
+  for(const ep of TIME_ENDPOINTS){
+    const data = await fetchWithTimeout_(ep.url, TIME_FETCH_TIMEOUT_MS);
+    if(data){ try{ const ms = ep.parse(data); if(Number.isFinite(ms)) return { ntpTime: ms, source: ep.url }; }catch(e){} }
+  }
+  return null;
+}
+async function initTimeAnchor(force){
+  const deviceTime = Date.now(); const monoTime = performance.now();
+  const trusted = await fetchTrustedTime_();
+  if(trusted){
+    // Was the CALENDAR DATE already wrong (not just the time-of-day) at
+    // the moment this anchor was established? Compared by actual date,
+    // not just millisecond magnitude -- a change right around midnight
+    // could cross a date boundary with only a few minutes' difference,
+    // while a large-but-same-day time error shouldn't be mislabeled as
+    // a "date" problem.
+    const dateWasWrongAtAnchor = new Date(deviceTime).toDateString() !== new Date(trusted.ntpTime).toDateString();
+    timeAnchor = { ntpTime: trusted.ntpTime, deviceTime, monoTime, source: 'ntp', drift: trusted.ntpTime - deviceTime, dateWasWrongAtAnchor };
+  } else if(!timeAnchor || force){
+    // Only fall back to the raw device clock if we have NO better anchor
+    // at all yet -- if a previous NTP sync already succeeded this
+    // session, keep using THAT (its monotonic-elapsed correction is still
+    // trustworthy) rather than discarding it for an unverified one.
+    // This is the fix for the Matrix sheet's explicit warning: never
+    // silently fall back to the wall clock when a real anchor exists.
+    timeAnchor = { ntpTime: deviceTime, deviceTime, monoTime, source: 'device-fallback', drift: 0, dateWasWrongAtAnchor: false };
+  }
+  // else: sync failed, but we already have a working NTP-based anchor
+  // from earlier -- leave it alone, it's still valid.
+}
+
+// Matrix scenario #2: "server anchor usually still obtainable" -- keep
+// trying rather than permanently giving up after one failed attempt.
+// Retries periodically AND immediately whenever the browser regains
+// connectivity, so a temporarily weak signal at page load doesn't leave
+// the whole session unanchored forever.
+function scheduleTimeAnchorRetries(){
+  setInterval(() => {
+    if(!timeAnchor || timeAnchor.source === 'device-fallback') initTimeAnchor();
+  }, 30000);
+  window.addEventListener('online', () => {
+    if(!timeAnchor || timeAnchor.source === 'device-fallback') initTimeAnchor();
+  });
+}
+function correctedNow(){
+  if(!timeAnchor) return { time: Date.now(), source: 'uninitialized', clockChanged: false, dateChanged: false };
+  const elapsed = performance.now() - timeAnchor.monoTime;
+  const corrected = timeAnchor.ntpTime + elapsed;
+  const predictedDeviceTime = timeAnchor.deviceTime + elapsed;
+  const clockChangeMs = Date.now() - predictedDeviceTime;
+  // Same date-boundary comparison as above, but for a change happening
+  // DURING the session (mid-flight), not at anchor time.
+  const dateChanged = new Date(predictedDeviceTime).toDateString() !== new Date(Date.now()).toDateString();
+  return {
+    time: corrected, source: timeAnchor.source, ntpDriftMs: timeAnchor.drift,
+    clockChanged: Math.abs(clockChangeMs) > CLOCK_CHANGE_TOLERANCE_MS, clockChangeMs,
+    dateChanged, dateWasWrongAtAnchor: timeAnchor.dateWasWrongAtAnchor,
+  };
+}
+
+function buildMetadata(source, resolution, exifOverride){
+  let timestamp, timeLabel;
+  if(exifOverride && exifOverride.dateTime){
+    // Gallery upload with a real capture timestamp embedded in the photo --
+    // use THAT instead of "now" (now = whenever/wherever it got uploaded).
+    timestamp = exifOverride.dateTime.toISOString();
+    timeLabel = exifOverride.dateTime.toLocaleString() + " (from photo)";
+  } else {
+    // NEW: NTP/monotonic-anchored time instead of a raw device clock --
+    // this is the one line changed from your original (which used
+    // `new Date()` directly here). See time-anchor block above.
+    const corrected = correctedNow();
+    const now = new Date(corrected.time);
+    timestamp = now.toISOString();
+    timeLabel = now.toLocaleString();
+  }
+
+  let gpsLabel = "Unavailable";
+  let lat=null, lon=null, accuracy=null;
+  // ⚠️ FIX: some Android camera apps write a GPS block with all-zero values
+  // into EXIF when location was off/denied at capture time, instead of
+  // omitting GPS data entirely. 0°,0° is a spot in the ocean off West
+  // Africa -- essentially never a real cattle location -- so treat it the
+  // same as "no GPS data", not a real coordinate.
+  const hasRealGPS = exifOverride && exifOverride.gps &&
+    (Math.abs(exifOverride.gps.lat) > 0.0001 || Math.abs(exifOverride.gps.lon) > 0.0001);
+  if(hasRealGPS){
+    // Gallery upload with real GPS embedded in the photo -- use THAT instead
+    // of the device's current live location, which would otherwise show
+    // wherever the phone happens to be at upload time, not where the photo
+    // was actually taken.
+    lat = exifOverride.gps.lat; lon = exifOverride.gps.lon; accuracy = null;
+    gpsLabel = `${lat.toFixed(5)}, ${lon.toFixed(5)} (from photo, exact GPS)`;
+  } else if(source === 'gallery'){
+    // Gallery upload but the photo had no usable embedded GPS (common --
+    // many apps like WhatsApp strip EXIF entirely, or the camera app wrote
+    // a zero placeholder because location was off). Deliberately do NOT
+    // fall back to the device's current location here, since that
+    // reproduces the exact "wrong city" bug this was built to avoid.
+    const reasonLabels = {
+      "no-exif-data":      "Not available (no location data — Android's photo picker or an app like WhatsApp likely stripped it)",
+      "no-gps-data":       "Not available (no location data — Android's photo picker or an app like WhatsApp likely stripped it)",
+      "zero-gps":          "Not available (location was off when this photo was taken)",
+      "parse-failed":      `Not available (metadata read error: ${(exifOverride && exifOverride.errorDetail) || 'unknown'})`,
+      "outer-exception":   `Not available (unexpected error: ${(exifOverride && exifOverride.errorDetail) || 'unknown'})`,
+      "exifr-load-failed": "Not available (metadata reader failed to load — try again with internet on)"
+    };
+    gpsLabel = (exifOverride && reasonLabels[exifOverride.reason]) || "Not available (photo has no location data)";
+  } else if(lastLocation){
+    lat = lastLocation.lat; lon = lastLocation.lon; accuracy = lastLocation.accuracy;
+    gpsLabel = `${lat.toFixed(5)}, ${lon.toFixed(5)} (±${Math.round(accuracy)}m)`;
+  }
+  return { timestamp, timeLabel, lat, lon, accuracy, gpsLabel, device: navigator.userAgent + (deviceModelHint ? ` | Model: ${deviceModelHint}` : ''), resolution, source };
+}
+
+// =========================================================================
+// BACKEND UPLOAD -- NEW addition. Sends each capture to the FastAPI
+// backend (server-anchored timestamp, EXIF Detection Signals for gallery
+// uploads) IN ADDITION to your existing local export flow below -- this
+// doesn't replace or alter "Download Claim Package", it runs alongside it.
+// Fire-and-forget: never blocks or breaks the existing UI if it fails.
+// =========================================================================
+let caseId = null;
+
+// =========================================================================
+// SESSION PERSISTENCE -- NEW, by request. Survives a page refresh, which
+// previously wiped out everything captured so far (in-memory only). Uses
+// IndexedDB (same pattern as the offline queue below) since captured
+// photos/videos as base64 can total several MB -- far beyond what
+// localStorage can hold. Debounced so rapid successive changes (e.g.
+// several quick captures) don't hammer IndexedDB with redundant writes.
+// =========================================================================
+const SESSION_DB = 'cattle_session_state';
+const SESSION_STORE = 'session';
+const SESSION_KEY = 'current';
+
+function openSessionDb(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(SESSION_DB, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore(SESSION_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+let saveSessionTimeout_ = null;
+function saveSessionState(){
+  clearTimeout(saveSessionTimeout_);
+  saveSessionTimeout_ = setTimeout(async () => {
+    try{
+      const serializedCaptures = {};
+      for(const [key, cap] of Object.entries(captures)){
+        serializedCaptures[key] = {
+          isVideo: !!cap.isVideo,
+          dataUrl: cap.dataUrl || null,           // photo, or video's poster frame -- both persistable base64
+          videoDataUrl: cap.videoDataUrl || null,  // video itself, persistable base64
+          mimeType: cap.mimeType || null,
+          side: cap.side || null,
+          meta: cap.meta || null,
+          backendResult: cap.backendResult || null,
+          tamperVerdict: cap.tamperVerdict || null,
+          queuedOffline: !!cap.queuedOffline,
+          capturedMeta: cap.capturedMeta || null,
+          fileLastModified: cap.fileLastModified || null,
+          // NOTE: elaDataUrl deliberately NOT persisted -- it's lazily
+          // regenerated on demand when "View ELA" is tapped, no need to
+          // double storage size carrying it across reloads too.
+        };
+      }
+      const state = { caseId, currentDomain, currentStepIdx, stepSide, captures: serializedCaptures, savedAt: Date.now() };
+      const db = await openSessionDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(SESSION_STORE, 'readwrite');
+        tx.objectStore(SESSION_STORE).put(state, SESSION_KEY);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    }catch(err){ console.warn('Could not save session state:', err); }
+  }, 400);
+}
+
+// Returns true if a previous session was actually restored, so init()
+// knows whether to render at the restored step or fall back to step 0.
+async function restoreSessionState(){
+  try{
+    const db = await openSessionDb();
+    const state = await new Promise((resolve, reject) => {
+      const tx = db.transaction(SESSION_STORE, 'readonly');
+      const req = tx.objectStore(SESSION_STORE).get(SESSION_KEY);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    if(!state) return false;
+
+    caseId = state.caseId;
+    currentDomain = state.currentDomain || 'live';
+    currentStepIdx = state.currentStepIdx || 0;
+    stepSide = state.stepSide || {};
+
+    captures = {};
+    for(const [key, saved] of Object.entries(state.captures || {})){
+      const cap = {
+        isVideo: saved.isVideo, dataUrl: saved.dataUrl, mimeType: saved.mimeType,
+        side: saved.side, meta: saved.meta, backendResult: saved.backendResult,
+        tamperVerdict: saved.tamperVerdict,
+        queuedOffline: saved.queuedOffline, capturedMeta: saved.capturedMeta,
+        fileLastModified: saved.fileLastModified,
+      };
+      if(saved.isVideo && saved.videoDataUrl){
+        cap.videoDataUrl = saved.videoDataUrl;
+        try{
+          const blob = await dataUrlToBlob(saved.videoDataUrl);
+          cap.videoBlobUrl = URL.createObjectURL(blob);
+        }catch(e){ console.warn('Could not rebuild video playback URL for', key, e); }
+      }
+      captures[key] = cap;
+    }
+    return true;
+  }catch(err){
+    console.warn('Could not restore session state (starting fresh):', err);
+    return false;
+  }
+}
+
+async function clearSessionState(){
+  try{
+    const db = await openSessionDb();
+    await new Promise((resolve) => {
+      const tx = db.transaction(SESSION_STORE, 'readwrite');
+      tx.objectStore(SESSION_STORE).delete(SESSION_KEY);
+      tx.oncomplete = resolve;
+    });
+  }catch(err){ console.warn('Could not clear session state:', err); }
+}
+
+// =========================================================================
+// OFFLINE UPLOAD QUEUE -- NEW. Fixes a real gap: previously, a capture
+// made offline just silently failed to ever reach the backend, even
+// after connectivity returned. Uses IndexedDB (built into every browser,
+// no library needed, and unlike localStorage it can store Blobs directly)
+// to persist pending uploads, then retries them automatically whenever
+// the browser regains connectivity -- this is the actual mechanism behind
+// Matrix scenario #3/#11/#12 Live's "offline queue" behavior.
+// =========================================================================
+const OFFLINE_QUEUE_DB = 'cattle_offline_queue';
+const OFFLINE_QUEUE_STORE = 'pending_uploads';
+
+function openQueueDb(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(OFFLINE_QUEUE_DB, 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(OFFLINE_QUEUE_STORE, { keyPath: 'queueId', autoIncrement: true });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function queuePendingUpload(entry){
+  try{
+    const db = await openQueueDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(OFFLINE_QUEUE_STORE, 'readwrite');
+      tx.objectStore(OFFLINE_QUEUE_STORE).add(entry);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }catch(err){ console.warn('Could not queue offline upload (IndexedDB unavailable?):', err); }
+}
+
+async function retryPendingUploads(){
+  let db;
+  try{ db = await openQueueDb(); }catch(err){ return; }
+
+  const entries = await new Promise((resolve, reject) => {
+    const tx = db.transaction(OFFLINE_QUEUE_STORE, 'readonly');
+    const req = tx.objectStore(OFFLINE_QUEUE_STORE).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  if(!entries.length) return;
+
+  for(const entry of entries){
+    try{
+      // ⚠️ REAL BUG FIX: this used to call the GLOBAL ensureCase(), which
+      // is tied to whatever case is CURRENTLY active -- meaning a queued
+      // photo from an earlier animal would upload under whatever LATER
+      // animal's case happened to be active by the time this retry ran.
+      // Each entry now carries its OWN case_id, recorded at the exact
+      // moment it was originally queued -- this ensures THAT SPECIFIC
+      // case exists on the server (independently of anything else that's
+      // happened since), rather than touching the global caseId at all.
+      const entryCaseId = entry.case_id;
+      if(!entryCaseId){
+        console.warn('Queued entry has no case_id (from before this fix) -- skipping, cannot safely upload:', entry.queueId);
+        continue;
+      }
+      const caseSynced = await ensureCaseExists(entryCaseId, entry.domain || 'live');
+      if(!caseSynced) continue; // still offline -- try the rest, come back to this one next cycle
+      const formData = new FormData();
+      formData.append('file', entry.blob, entry.filename);
+      formData.append('case_id', entryCaseId);
+      formData.append('step_id', entry.key);
+      Object.entries(entry.fields).forEach(([k,v]) => formData.append(k, v));
+      const resp = await fetchWithTimeoutPost_('/api/captures/upload', formData);
+      if(!resp.ok){
+        const detail = await resp.text().catch(() => '');
+        console.error('Queued retry upload failed:', resp.status, detail, '-- leaving queued, will try again');
+        continue; // leave queued, try again next retry cycle
+      }
+      const result = await resp.json();
+
+      // Remove from the queue now that it succeeded.
+      const delDb = await openQueueDb();
+      await new Promise((resolve) => {
+        const tx = delDb.transaction(OFFLINE_QUEUE_STORE, 'readwrite');
+        tx.objectStore(OFFLINE_QUEUE_STORE).delete(entry.queueId);
+        tx.oncomplete = resolve;
+      });
+
+      // If this exact capture is still the one in memory this session
+      // (person never left/reloaded the page), update its live display
+      // now that a real backend result finally exists for it.
+      const cap = captures[entry.key];
+      if(cap){
+        cap.backendResult = result;
+        cap.queuedOffline = false;
+        saveSessionState(); // NEW -- otherwise a refresh before the NEXT save could lose this result again
+        if(captureKey(currentStep()) === entry.key) showCaptured(cap);
+      }
+    }catch(err){
+      console.warn('Retry failed for queued upload, will try again later:', err);
+    }
+  }
+}
+
+function scheduleOfflineQueueRetries(){
+  // A short delay after 'online' fires -- gives the connection a moment
+  // to actually stabilize before the first retry attempt, since the
+  // event itself is not a reliable "internet is reachable now" signal.
+  window.addEventListener('online', () => { setTimeout(retryPendingUploads, 2000); });
+  setInterval(retryPendingUploads, 20000); // faster periodic sweep -- catches anything a missed/early 'online' event didn't
+  retryPendingUploads(); // and once right at startup, in case items were queued in a previous session
+}
+
+
+// Fetch with an explicit timeout for POST calls -- fixes a real bug: a
+// plain fetch() with no network available can hang far longer than
+// expected (sometimes 30s+) before the browser gives up on its own,
+// which delayed detecting "we're offline" and made the queued-upload
+// badge appear to never show up at all. 8s is generous for a normal
+// connection but short enough that a dead connection gets caught fast.
+async function fetchWithTimeoutPost_(url, formData, ms = 8000){
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), ms);
+  try{
+    const resp = await fetch(url, { method: 'POST', body: formData, signal: controller.signal });
+    clearTimeout(t);
+    return resp;
+  }catch(err){
+    clearTimeout(t);
+    throw err;
+  }
+}
+
+async function fetchWithTimeoutPut_(url, formData, ms = 8000){
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), ms);
+  try{
+    const resp = await fetch(url, { method: 'PUT', body: formData, signal: controller.signal });
+    clearTimeout(t);
+    return resp;
+  }catch(err){
+    clearTimeout(t);
+    throw err;
+  }
+}
+
+// Matches the server's own id format (case_ + 12 hex chars) so it doesn't
+// matter which side generates an id first -- the backend's idempotent
+// case-creation (see api/cases.py) treats either the same way.
+function generateLocalCaseId(){
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  return 'case_' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Ensures a SPECIFIC case exists on the server -- kept separate from the
+// global caseId/ensureCase() below, since the offline queue needs to sync
+// each queued entry's OWN case, which may no longer be the CURRENTLY
+// active one by the time the retry actually runs (see queueThisCaptureForRetry).
+async function ensureCaseExists(targetCaseId, domain){
+  try{
+    const formData = new FormData();
+    formData.append('case_id', targetCaseId);
+    formData.append('domain', domain);
+    const resp = await fetchWithTimeoutPost_('/api/cases', formData);
+    return resp.ok;
+  }catch(err){
+    return false; // still offline / unreachable -- fine, this gets retried later same as anything else
+  }
+}
+
+// ⚠️ REAL BUG FIX: this used to return null while offline, meaning there
+// was no valid case_id at all for anything captured before a connection
+// had ever been established -- multiple animals captured entirely
+// offline, one after another, had nowhere correct to be tagged. Now this
+// ALWAYS returns a usable case_id immediately (generated locally if
+// needed); syncing it to the server is a separate, independently-retriable
+// step (ensureCaseExists above), not a precondition for capturing and
+// queuing photos in the first place.
+async function ensureCase(){
+  if(!caseId) caseId = generateLocalCaseId();
+  await ensureCaseExists(caseId, currentDomain); // best-effort -- caseId is already valid locally either way
+  return caseId;
+}
+async function dataUrlToBlob(dataUrl){
+  return await (await fetch(dataUrl)).blob();
+}
+
+// =========================================================================
+// FRAME INTEGRITY HASH -- NEW, closes Matrix scenario #5 Live ("close the
+// gap"). Hashes the raw bytes using the browser's built-in Web Crypto
+// API (crypto.subtle), no external library. Computed at the moment of
+// upload from the SAME blob that gets sent -- the server independently
+// recomputes this from what it actually receives and compares.
+// =========================================================================
+async function sha256Hex(blob){
+  const buffer = await blob.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+// Sends the Tamper Check score/band as a small follow-up update, once it's
+// actually ready -- computed in a background step that runs AFTER the
+// original upload, by design, so it never delays the visible capture.
+// Only fires if the original upload already succeeded (cap.backendResult
+// exists, giving us a real capture id to update) -- if it's still queued
+// offline, there's nothing to update yet; the next successful upload
+// attempt will include the score directly instead.
+async function sendTamperCheckUpdate(cap){
+  if(!cap.backendResult || !cap.backendResult.id || !cap.tamperVerdict) return;
+  try{
+    const formData = new FormData();
+    formData.append('tamper_check_score', String(cap.tamperVerdict.score));
+    formData.append('tamper_check_band', cap.tamperVerdict.band);
+    await fetchWithTimeoutPost_(`/api/captures/${cap.backendResult.id}/tamper_check`, formData);
+  }catch(err){
+    console.warn('Could not send Tamper Check follow-up update (not fatal, the capture itself is fine):', err);
+  }
+}
+
+
+async function uploadCaptureToBackend(cap, key){
+  try{
+    const cid = await ensureCase();
+    if(!cid){
+      // Offline / backend unreachable right now. Don't just give up --
+      // queue this for automatic retry once connectivity returns. The
+      // photo is fully captured and safe locally either way; this only
+      // affects when the SERVER-side checks (Clock Integrity, EXIF
+      // Integrity, Frame Integrity hash) become available.
+      //
+      // FIX: mark queuedOffline and render the badge IMMEDIATELY, before
+      // the (slower) hash computation + IndexedDB write below -- those
+      // can take a couple of seconds, and if the person had already
+      // looked at or navigated away from this step by the time they
+      // finished, the badge would silently never have appeared. This way
+      // the visual feedback is instant, not dependent on that other work
+      // finishing first.
+      cap.queuedOffline = true;
+      saveSessionState(); // NEW
+      if(captures[key] === cap && captureKey(currentStep()) === key){ renderBackendIntegrityFields(cap); }
+      await queueThisCaptureForRetry(cap, key);
+      return;
+    }
+    const blob = cap.isVideo
+      ? await (await fetch(cap.videoBlobUrl)).blob()
+      : await dataUrlToBlob(cap.dataUrl);
+    // Hash computed from this EXACT blob, right before it's sent -- as
+    // close to "the bytes that leave the browser" as this can get.
+    const frameHash = await sha256Hex(blob);
+    const formData = new FormData();
+    formData.append('file', blob, cap.isVideo ? 'capture.webm' : 'capture.jpg');
+    formData.append('case_id', cid);
+    formData.append('step_id', key);
+    formData.append('source', cap.meta.source === 'geotag-generated' ? (cap.meta.originalSource || 'camera') : cap.meta.source);
+    formData.append('client_frame_hash', frameHash);
+    if(cap.fileLastModified != null) formData.append('file_last_modified', String(cap.fileLastModified));
+    // NEW -- these were shown on screen the whole time but never actually
+    // sent to the backend before, so organized_exports (and the database
+    // itself) never had them. Real gap, found by comparing the summary
+    // file against the webpage side by side.
+    if(cap.meta.resolution) formData.append('resolution', cap.meta.resolution);
+    if(cap.meta.device) formData.append('device_info', cap.meta.device);
+    // NEW -- Pixel-Size Normalization result, known synchronously at
+    // capture time (unlike Tamper Check, which is an async follow-up) --
+    // sent directly with the initial upload.
+    if(cap.normalizeScaleApplied != null) formData.append('normalize_scale_applied', String(cap.normalizeScaleApplied));
+    if(cap.normalizeSkipped != null) formData.append('normalize_skipped', String(cap.normalizeSkipped));
+    if(cap.normalizeSkipReason) formData.append('normalize_skip_reason', cap.normalizeSkipReason);
+    if(cap.tamperVerdict){
+      formData.append('tamper_check_score', String(cap.tamperVerdict.score));
+      formData.append('tamper_check_band', cap.tamperVerdict.band);
+    }
+    if(cap.meta.source === 'camera' || cap.meta.source === 'geotag-generated'){
+      const corrected = correctedNow();
+      formData.append('device_timestamp', cap.meta.timestamp);
+      formData.append('device_time_source', corrected.source);
+      if(corrected.ntpDriftMs != null) formData.append('device_ntp_drift_ms', String(Math.round(corrected.ntpDriftMs)));
+      formData.append('device_clock_changed', String(corrected.clockChanged));
+      formData.append('device_date_changed', String(corrected.dateChanged));
+      formData.append('device_date_wrong_at_anchor', String(corrected.dateWasWrongAtAnchor));
+      // Matrix scenario #7 Live -- the browser's own idea of what
+      // timezone it's in (e.g. "Asia/Kolkata"), cross-checked server-side
+      // against the GPS coordinates below.
+      try{
+        formData.append('device_timezone', Intl.DateTimeFormat().resolvedOptions().timeZone);
+      }catch(e){ /* Intl API unsupported on this browser -- skip, not fatal */ }
+    }
+    if(cap.meta.lat != null){
+      formData.append('lat', String(cap.meta.lat));
+      formData.append('lon', String(cap.meta.lon));
+      if(cap.meta.accuracy != null) formData.append('gps_accuracy_m', String(cap.meta.accuracy));
+    }
+    const resp = await fetchWithTimeoutPost_('/api/captures/upload', formData);
+    if(!resp.ok){
+      const detail = await resp.text().catch(() => '');
+      console.error('Backend upload returned', resp.status, detail);
+      cap.queuedOffline = true;
+      saveSessionState(); // NEW
+      if(captures[key] === cap && captureKey(currentStep()) === key){ renderBackendIntegrityFields(cap); }
+      await queueThisCaptureForRetry(cap, key);
+      return;
+    }
+    const result = await resp.json();
+    // ⚠️ REAL BUG FIX: mark this as successfully uploaded FIRST, before
+    // anything that could throw (rendering, session save). Previously,
+    // if renderBackendIntegrityFields or saveSessionState threw for ANY
+    // reason after a successful upload, execution fell into the outer
+    // catch block below, which re-queued this capture for retry -- even
+    // though the server had ALREADY received and saved it. The next
+    // retry cycle would then upload it AGAIN, creating a genuine
+    // duplicate file for what was really only one recording. This is
+    // almost certainly what caused a single video recording to appear
+    // as two separate files.
+    cap.backendResult = result;
+    cap.queuedOffline = false;
+    try{
+      saveSessionState();
+      // Only re-render if this capture is still the one stored under this key
+      // AND we're still looking at that exact step -- without the second
+      // check, a delayed successful upload could silently overwrite whatever
+      // step's panel the person has since navigated to.
+      if(captures[key] === cap && captureKey(currentStep()) === key){
+        renderBackendIntegrityFields(cap);
+      }
+    }catch(renderErr){
+      // A display-only problem here must NEVER cause a re-upload of a file
+      // the server already has -- log it and move on, don't let it
+      // propagate to the outer catch below.
+      console.warn('Upload succeeded, but updating the display afterward failed (this is NOT re-queued, the upload itself is safe):', renderErr);
+    }
+  }catch(err){
+    console.warn('Backend upload failed for', key, '-- queuing for retry:', err);
+    cap.queuedOffline = true;
+    saveSessionState(); // NEW
+    if(captures[key] === cap && captureKey(currentStep()) === key){ renderBackendIntegrityFields(cap); }
+    await queueThisCaptureForRetry(cap, key);
+  }
+}
+
+// Builds a self-contained queue entry (its own blob + hash + form fields)
+// so it can be called from any failure point above without depending on
+// variables from a try block that may not have gotten that far.
+async function queueThisCaptureForRetry(cap, key){
+  try{
+    const blob = cap.isVideo
+      ? await (await fetch(cap.videoBlobUrl)).blob()
+      : await dataUrlToBlob(cap.dataUrl);
+    const frameHash = await sha256Hex(blob);
+    const fields = {
+      source: cap.meta.source === 'geotag-generated' ? (cap.meta.originalSource || 'camera') : cap.meta.source,
+      client_frame_hash: frameHash,
+    };
+    if(cap.fileLastModified != null) fields.file_last_modified = String(cap.fileLastModified);
+    if(cap.meta.resolution) fields.resolution = cap.meta.resolution;
+    if(cap.meta.device) fields.device_info = cap.meta.device;
+    if(cap.tamperVerdict){
+      fields.tamper_check_score = String(cap.tamperVerdict.score);
+      fields.tamper_check_band = cap.tamperVerdict.band;
+    }
+    if(cap.meta.source === 'camera' || cap.meta.source === 'geotag-generated'){
+      const corrected = correctedNow();
+      fields.device_timestamp = cap.meta.timestamp;
+      fields.device_time_source = corrected.source;
+      if(corrected.ntpDriftMs != null) fields.device_ntp_drift_ms = String(Math.round(corrected.ntpDriftMs));
+      fields.device_clock_changed = String(corrected.clockChanged);
+      fields.device_date_changed = String(corrected.dateChanged);
+      fields.device_date_wrong_at_anchor = String(corrected.dateWasWrongAtAnchor);
+      try{ fields.device_timezone = Intl.DateTimeFormat().resolvedOptions().timeZone; }catch(e){}
+    }
+    if(cap.meta.lat != null){
+      fields.lat = String(cap.meta.lat);
+      fields.lon = String(cap.meta.lon);
+      if(cap.meta.accuracy != null) fields.gps_accuracy_m = String(cap.meta.accuracy);
+    }
+    await queuePendingUpload({
+      key,
+      filename: cap.isVideo ? 'capture.webm' : 'capture.jpg',
+      blob,
+      fields,
+      // ⚠️ REAL BUG FIX: previously this wasn't stored at all, so a
+      // retry later just used whatever case happened to be CURRENTLY
+      // active -- meaning capturing multiple animals offline, one after
+      // another, would misattribute earlier animals' queued photos to
+      // whichever case was active when the retry finally ran. Storing it
+      // here, at the exact moment this specific photo is queued, is what
+      // makes the multi-animal offline workflow safe.
+      case_id: caseId,
+      domain: currentDomain,
+    });
+    cap.queuedOffline = true;
+    saveSessionState(); // NEW
+    if(captures[key] === cap && captureKey(currentStep()) === key){ renderBackendIntegrityFields(cap); }
+  }catch(err){
+    console.warn('Could not queue capture for retry either -- this specific photo will only reach the backend if you manually retake it while online:', err);
+  }
+}
+
+// =========================================================================
+// BACKEND INTEGRITY DISPLAY -- NEW. Renders the Clock Integrity (server-
+// anchored drift/tamper signals) and EXIF Integrity (gallery Detection
+// Signals) rows from the backend upload response. Neither of these
+// existed in your original app (no backend to source them from); this is
+// purely additive to the metadata panel, nothing else is touched.
+// =========================================================================
+function renderBackendIntegrityFields(cap){
+  const r = cap.backendResult;
+  const clockRow = document.getElementById('mpClockRow');
+  const clockBadge = document.getElementById('mpClockBadge');
+  const clockDetail = document.getElementById('mpClockDetail');
+  const hashRow = document.getElementById('mpHashRow');
+  const hashBadge = document.getElementById('mpHashBadge');
+  const dupeRow = document.getElementById('mpDupeRow');
+  const dupeBadge = document.getElementById('mpDupeBadge');
+  const dupeDetail = document.getElementById('mpDupeDetail');
+  const exifRow = document.getElementById('mpExifRow');
+  const exifBadge = document.getElementById('mpExifBadge');
+  const exifFlagsEl = document.getElementById('mpExifFlags');
+
+  if(!r){
+    if(cap.queuedOffline && (cap.meta.source === 'camera' || cap.meta.source === 'geotag-generated' || cap.meta.source === 'gallery')){
+      // Was captured fine, but couldn't reach the backend yet -- this is
+      // the actual fix for the "row just vanishes" report: make the
+      // offline-queued state visible instead of silently hiding
+      // everything, since the person shouldn't have to guess whether
+      // this photo is safe or lost.
+      clockRow.style.display = '';
+      clockBadge.className = 'tamper-badge na';
+      clockBadge.textContent = '⏳ Queued -- will check once back online';
+      clockDetail.style.display = 'block';
+      clockDetail.innerHTML = 'This photo is safely saved. The server-side checks (Clock Integrity, Frame Integrity, EXIF Integrity) need a connection to run -- they normally complete automatically once back online. If it\'s been a bit and nothing\'s changed, tap: <button id="mpManualSyncBtn" style="margin-top:6px;padding:6px 12px;border-radius:8px;border:1px solid var(--accent);background:rgba(140,198,63,.12);color:var(--accent);font-size:11px;cursor:pointer;">🔄 Try syncing now</button>';
+      const manualSyncBtn = document.getElementById('mpManualSyncBtn');
+      if(manualSyncBtn){
+        manualSyncBtn.addEventListener('click', async () => {
+          manualSyncBtn.textContent = 'Syncing…';
+          manualSyncBtn.disabled = true;
+          await retryPendingUploads();
+          // retryPendingUploads() already re-renders this panel if it succeeded;
+          // if it's still showing this same queued state, the connection genuinely isn't back yet.
+        });
+      }
+      hashRow.style.display = 'none';
+      dupeRow.style.display = 'none';
+      dupeDetail.style.display = 'none';
+      exifRow.style.display = 'none';
+      exifFlagsEl.style.display = 'none';
+      return;
+    }
+    clockRow.style.display = 'none';
+    clockDetail.style.display = 'none';
+    hashRow.style.display = 'none';
+    dupeRow.style.display = 'none';
+    dupeDetail.style.display = 'none';
+    exifRow.style.display = 'none';
+    exifFlagsEl.style.display = 'none';
+    return;
+  }
+
+  // Clock Integrity -- camera/geotag captures only (nothing to anchor for
+  // a gallery upload's claimed EXIF time).
+  if(cap.meta.source === 'camera' || cap.meta.source === 'geotag-generated'){
+    clockRow.style.display = '';
+    if(r.unanchored_flag){
+      clockBadge.className = 'tamper-badge elevated';
+      clockBadge.textContent = '⚠️ No server time reference available';
+      clockDetail.style.display = 'block';
+      clockDetail.textContent = 'This capture\'s clock could NOT be cross-checked against any external time source (weak/no signal when the session started). The device\'s own clock is being trusted with zero verification -- if it was tampered with beforehand, none of the other checks below would catch it either.';
+    } else if(r.clock_tamper_flag){
+      clockBadge.className = 'tamper-badge elevated';
+      clockBadge.textContent = r.date_changed ? '⚠️ Date changed since anchor' : '⚠️ Clock changed since anchor';
+      clockDetail.style.display = 'block';
+      clockDetail.textContent = r.date_changed
+        ? 'The device\'s CALENDAR DATE was manually changed during this session, not just the time-of-day -- caught by the same monotonic-clock check, just a bigger jump.'
+        : 'The device\'s monotonic clock detected the wall clock was manually changed during this session -- this is the reliable signal, independent of the gap size below.';
+    } else if(r.anchor_drift_flag){
+      clockBadge.className = 'tamper-badge elevated';
+      clockBadge.textContent = r.date_wrong_at_anchor ? '⚠️ Date was wrong at session start' : '⚠️ Clock was wrong at session start';
+      clockDetail.style.display = 'block';
+      clockDetail.textContent = r.date_wrong_at_anchor
+        ? 'The device\'s CALENDAR DATE didn\'t match real time when this session began -- not just the time-of-day being slightly off, the actual date was wrong. May have been set manually before opening the app.'
+        : 'The device\'s wall clock didn\'t match real time (NTP) when this session began -- it may have been set manually before opening the app, or reset since. Nothing changed DURING capture, but the starting point itself was off.';
+    } else if(r.capture_upload_gap_flag){
+      clockBadge.className = 'tamper-badge na';
+      clockBadge.textContent = `ℹ️ Long capture-to-upload gap (${Math.round(Math.abs(r.drift_server_vs_device_ms)/3600000)}h)`;
+      clockDetail.style.display = 'block';
+      clockDetail.textContent = 'Normal for offline field capture -- flagged for review only, not treated as tampering, since no clock edit was detected.';
+    } else if(r.clock_drift_flag){
+      clockBadge.className = 'tamper-badge uncertain';
+      clockBadge.textContent = `❔ ${Math.round(r.drift_server_vs_device_ms/1000)}s drift`;
+      clockDetail.style.display = 'block';
+      clockDetail.textContent = 'Ordinary clock inaccuracy -- the server time is authoritative regardless.';
+    } else if(r.timezone_mismatch_flag){
+      clockBadge.className = 'tamper-badge na';
+      clockBadge.textContent = 'ℹ️ Timezone doesn\'t match location';
+      clockDetail.style.display = 'block';
+      clockDetail.textContent = 'The device\'s timezone setting doesn\'t match what these GPS coordinates would suggest. Usually just an honest traveller or a phone with the wrong timezone set -- flagged for awareness only, not treated as tampering.';
+    } else {
+      clockBadge.className = 'tamper-badge low';
+      clockBadge.textContent = '✅ Consistent';
+      clockDetail.style.display = 'none';
+    }
+  } else {
+    clockRow.style.display = 'none';
+    clockDetail.style.display = 'none';
+  }
+
+  // Frame Integrity -- SHA-256 hash comparison, closes Matrix scenario #5
+  // Live. Meaningful for any source, but the "structurally impossible to
+  // tamper" claim only really applies to camera/geotag captures (a
+  // gallery file's hash just proves it wasn't altered AFTER upload
+  // started, not that it's the original photo -- there was never a
+  // capture-to-upload gap to protect in the first place for a file
+  // that already existed).
+  if(r.frame_hash_match !== null && r.frame_hash_match !== undefined){
+    hashRow.style.display = '';
+    if(r.frame_hash_match){
+      hashBadge.className = 'tamper-badge low';
+      hashBadge.textContent = '✅ Verified untouched';
+    } else {
+      hashBadge.className = 'tamper-badge elevated';
+      hashBadge.textContent = '⚠️ Hash mismatch';
+    }
+  } else {
+    hashRow.style.display = 'none';
+  }
+
+  // Duplicate Check -- Matrix scenario #3 Gallery's "duplicate-hash lookup
+  // against previously submitted images", but applied to any source (a
+  // legitimate live photo reused later via a gallery re-upload on a
+  // DIFFERENT claim is exactly the fraud pattern this needs to catch, not
+  // just gallery-to-gallery). Flag-only: a genuine duplicate could also be
+  // an honest re-upload after a mistake, not necessarily fraud.
+  if(r.duplicate_image_flag){
+    dupeRow.style.display = '';
+    dupeBadge.className = 'tamper-badge elevated';
+    dupeBadge.textContent = '⚠️ Seen before';
+    dupeDetail.style.display = 'block';
+    const d = r.duplicate_of;
+    dupeDetail.textContent = d
+      ? `The exact same photo file was already submitted before -- case ${d.case_id}, step "${d.step_id}", received ${new Date(d.server_received_at).toLocaleString()}. Could be an honest re-upload, or the same photo reused across a different claim -- worth checking.`
+      : 'The exact same photo file was already submitted before, under a different capture.';
+  } else if(r.duplicate_image_flag === false){
+    dupeRow.style.display = '';
+    dupeBadge.className = 'tamper-badge low';
+    dupeBadge.textContent = '✅ Not seen before';
+    dupeDetail.style.display = 'none';
+  } else {
+    dupeRow.style.display = 'none';
+    dupeDetail.style.display = 'none';
+  }
+
+  // EXIF Integrity -- gallery uploads only.
+  if(r.exif_signals){
+    exifRow.style.display = '';
+    const flags = r.exif_signals.flags || [];
+    const highCount = flags.filter(f => f.weight === 'High').length;
+    const medCount = flags.filter(f => f.weight === 'Medium').length;
+    if(!r.exif_signals.exif_present){
+      exifBadge.className = 'tamper-badge elevated';
+      exifBadge.textContent = '⚠️ No metadata found';
+    } else if(highCount > 0){
+      exifBadge.className = 'tamper-badge elevated';
+      exifBadge.textContent = `⚠️ ${highCount} high-weight flag${highCount > 1 ? 's' : ''}`;
+    } else if(medCount > 0){
+      exifBadge.className = 'tamper-badge uncertain';
+      exifBadge.textContent = `❔ ${medCount} flag${medCount > 1 ? 's' : ''}`;
+    } else {
+      exifBadge.className = 'tamper-badge low';
+      exifBadge.textContent = '✅ No flags';
+    }
+    if(flags.length){
+      exifFlagsEl.style.display = 'block';
+      exifFlagsEl.innerHTML = flags.map(f =>
+        `<div class="exif-flag-row"><span class="tag ${f.weight}">${f.weight}</span>${f.detail}</div>`
+      ).join('');
+    } else {
+      exifFlagsEl.style.display = 'none';
+    }
+  } else {
+    exifRow.style.display = 'none';
+    exifFlagsEl.style.display = 'none';
+  }
+}
+
+
+// ---------- Camera ----------
+async function startCamera(){
+  stopCamera();
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facingMode }, width:{ideal:1280}, height:{ideal:1706} },
+      // ⚠️ FIX: default audio constraints trigger Chrome's voice-call-style
+      // processing (echo cancellation/noise suppression/auto-gain), which on
+      // Android switches the whole page into "in-call" audio mode -- that's
+      // why the volume rocker was controlling call volume instead of media
+      // volume. Disabling these keeps it on the normal media audio stream.
+      audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false }
+    });
+    currentStream = stream;
+    video.srcObject = stream;
+    audioAvailable = stream.getAudioTracks().length > 0;
+    camError.classList.remove('show');
+  }catch(err){
+    console.warn("Camera+mic request failed, retrying video-only:", err);
+    // Fallback: if audio specifically caused the failure (mic permission
+    // denied, no mic hardware, etc.), don't let that break the whole app --
+    // photo steps still work fine without it, video just ends up silent.
+    try{
+      const videoOnlyStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: facingMode }, width:{ideal:1280}, height:{ideal:1706} },
+        audio: false
+      });
+      currentStream = videoOnlyStream;
+      video.srcObject = videoOnlyStream;
+      audioAvailable = false;
+      camError.classList.remove('show');
+    }catch(err2){
+      console.error("Camera error:", err2);
+      camError.classList.add('show');
+    }
+  }
+}
+function stopCamera(){
+  if(currentStream){ currentStream.getTracks().forEach(t=>t.stop()); currentStream=null; }
+}
+
+switchBtn.addEventListener('click', () => {
+  facingMode = (facingMode === "environment") ? "user" : "environment";
+  startCamera();
+});
+
+let isRecording = false;
+let isGeneratingGeotag = false;
+let mediaRecorder = null;
+
+// =========================================================================
+// GEOTAG generation -- takes the already-captured Flank photo (whichever
+// side), draws it onto a canvas, and overlays a dark info panel with the
+// address (via free reverse-geocoding), coordinates, and date/time --
+// same visual pattern as apps like "GPS Map Camera".
+// Reverse geocoding needs internet at the moment of generating; if it
+// fails (poor rural connectivity, etc.) this falls back gracefully to
+// just coordinates + date/time, no address line.
+// =========================================================================
+function countryCodeToFlagEmoji(code){
+  if(!code || code.length !== 2) return "";
+  // Converts a 2-letter country code (e.g. "IN") into its flag emoji using
+  // Unicode regional indicator symbols -- no image/network needed, renders
+  // natively wherever emoji are supported.
+  const codePoints = [...code.toUpperCase()].map(c => 0x1F1E6 + (c.charCodeAt(0) - 65));
+  return String.fromCodePoint(...codePoints);
+}
+
+async function reverseGeocode(lat, lon){
+  try{
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+    if(!resp.ok) return null;
+    const data = await resp.json();
+    if(!data.display_name) return null;
+
+    // Build a short "City, State, Country" title separately from the full
+    // address, matching the two-tier layout (bold title + smaller full
+    // address) used by apps like GPS Map Camera.
+    const a = data.address || {};
+    const city = a.city || a.town || a.village || a.county || "";
+    const title = [city, a.state, a.country].filter(Boolean).join(", ");
+    const flag = countryCodeToFlagEmoji(a.country_code);
+
+    return { title: title || data.display_name, fullAddress: data.display_name, flag };
+  }catch(err){
+    console.warn("Reverse geocoding failed (offline or service unavailable):", err);
+    return null;
+  }
+}
+
+// Measures word-wrapped lines WITHOUT drawing, so panel height can be
+// calculated correctly before anything is painted -- prevents overlap.
+function measureWrappedLines(ctx, text, maxWidth){
+  const words = text.split(' ');
+  let line = '';
+  const lines = [];
+  for(const word of words){
+    const testLine = line + word + ' ';
+    if(ctx.measureText(testLine).width > maxWidth && line !== ''){
+      lines.push(line.trim());
+      line = word + ' ';
+    } else {
+      line = testLine;
+    }
+  }
+  if(line.trim()) lines.push(line.trim());
+  return lines;
+}
+
+function drawPinIcon(ctx, cx, cy, size){
+  // Small self-drawn pin (no external image/network -- avoids the
+  // canvas-tainting risk of pulling in a real map tile).
+  ctx.save();
+  ctx.fillStyle = '#e05252';
+  ctx.beginPath();
+  ctx.arc(cx, cy - size*0.15, size*0.32, 0, Math.PI*2);
+  ctx.moveTo(cx, cy + size*0.42);
+  ctx.lineTo(cx - size*0.24, cy - size*0.03);
+  ctx.lineTo(cx + size*0.24, cy - size*0.03);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(cx, cy - size*0.15, size*0.12, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function formatGMTOffset(date){
+  const offsetMin = -date.getTimezoneOffset();
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const abs = Math.abs(offsetMin);
+  const hh = String(Math.floor(abs/60)).padStart(2,'0');
+  const mm = String(abs%60).padStart(2,'0');
+  return `GMT ${sign}${hh}:${mm}`;
+}
+
+// =========================================================================
+// ERROR LEVEL ANALYSIS (ELA) -- fraud-screening aid for gallery uploads.
+// Re-compresses the image at a fixed JPEG quality and diffs it against the
+// original; regions that were pasted/edited/smoothed didn't share the same
+// original compression pass as the rest, so they light up differently.
+// ⚠️ This is a VISUAL AID for human review, not a verdict. Edges and
+// high-contrast boundaries naturally glow even in authentic photos; flat
+// areas naturally look "clean" even in edited ones. Only meaningful on
+// JPEG source images (PNG has no compression history to analyze this way).
+// =========================================================================
+async function generateELA(sourceDataUrl, quality = 0.9, amplify = 15, maxDim = null){
+  const img = new Image();
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = reject;
+    img.src = sourceDataUrl;
+  });
+
+  let w = img.naturalWidth, h = img.naturalHeight;
+  // Downscale the working resolution when maxDim is given -- this is a
+  // VISUAL AID for a human reviewer, not a pixel-perfect forensic archive,
+  // so a smaller working size is plenty to spot a suspicious patch while
+  // keeping the pixel-by-pixel diff loop below fast enough to feel
+  // responsive (full native resolution can otherwise briefly freeze the
+  // page while regenerating, which is what made the image seem to vanish
+  // while dragging the sliders).
+  if(maxDim && Math.max(w, h) > maxDim){
+    const scale = maxDim / Math.max(w, h);
+    w = Math.round(w * scale);
+    h = Math.round(h * scale);
+  }
+
+  const origCanvas = document.createElement('canvas');
+  origCanvas.width = w; origCanvas.height = h;
+  const origCtx = origCanvas.getContext('2d');
+  origCtx.drawImage(img, 0, 0, w, h);
+  const origData = origCtx.getImageData(0, 0, w, h).data;
+
+  // Re-compress at the fixed quality level -- this recompression IS the
+  // technique: it establishes a known, uniform "compression pass" to
+  // compare the original against.
+  const recompressedDataUrl = origCanvas.toDataURL('image/jpeg', quality);
+  const recompImg = new Image();
+  await new Promise((resolve, reject) => {
+    recompImg.onload = resolve;
+    recompImg.onerror = reject;
+    recompImg.src = recompressedDataUrl;
+  });
+  const recompCanvas = document.createElement('canvas');
+  recompCanvas.width = w; recompCanvas.height = h;
+  const recompCtx = recompCanvas.getContext('2d');
+  recompCtx.drawImage(recompImg, 0, 0);
+  const recompData = recompCtx.getImageData(0, 0, w, h).data;
+
+  // Build the difference map, amplified so subtle differences become
+  // visible to the eye.
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = w; outCanvas.height = h;
+  const outCtx = outCanvas.getContext('2d');
+  const outImageData = outCtx.createImageData(w, h);
+  const outData = outImageData.data;
+
+  for(let i = 0; i < origData.length; i += 4){
+    const dr = Math.abs(origData[i]   - recompData[i]);
+    const dg = Math.abs(origData[i+1] - recompData[i+1]);
+    const db = Math.abs(origData[i+2] - recompData[i+2]);
+    outData[i]   = Math.min(255, dr * amplify);
+    outData[i+1] = Math.min(255, dg * amplify);
+    outData[i+2] = Math.min(255, db * amplify);
+    outData[i+3] = 255;
+  }
+  outCtx.putImageData(outImageData, 0, 0);
+
+  return outCanvas.toDataURL('image/jpeg', 0.92);
+}
+
+// =========================================================================
+// AUTOMATED TAMPER CHECK -- gallery uploads only. See extensive discussion
+// in chat: this is deliberately NOT run on live camera captures, since a
+// fresh camera photo has been JPEG-compressed exactly once and therefore
+// has no "inconsistent compression history" for this technique to find --
+// running it there would always report "clean" regardless of anything
+// real, which is worse than no signal at all.
+//
+// HOW THIS WORKS: same recompression-diff pass as generateELA, but instead
+// of producing a heatmap for a human to look at, it summarizes the result
+// into a verdict. A genuine, untouched photo's compression error is fairly
+// EVEN across the image (some areas naturally noisier than others based on
+// detail/contrast, but no single patch wildly out of step with its
+// neighbors). A spliced-in/edited region typically has a DIFFERENT
+// compression history than the rest of the photo, so it shows up as a
+// patch that's a statistical outlier relative to the image's other
+// patches -- that's what this measures: split the image into a grid, find
+// the most anomalous single block relative to the rest, and flag it if
+// that anomaly is both statistically unusual (z-score) AND large in
+// absolute terms (so a nearly-blank, low-noise photo doesn't get flagged
+// over trivial relative differences).
+//
+// ⚠️ HONESTY NOTE, UPDATED (read before trusting this in production):
+// real capture data surfaced TWO failure modes with the original single-
+// quality, raw-diff version above: genuine, detailed photos (e.g. a face,
+// an ear tag close-up) scoring HIGH, and photos too clean/well-blended to
+// show a diff at all scoring LOW regardless of whether they were edited.
+// Root cause: a plain per-block z-score of recompression diff can't tell
+// "this block has real photographic detail" from "this block was edited"
+// -- both produce elevated local diff. Two changes address that, each
+// targeting one of the two failure modes seen in practice:
+//
+// 1. TEXTURE NORMALIZATION (fixes the false-positive-on-detail mode) --
+//    before scoring, estimate how visually busy each block naturally is
+//    (local pixel-gradient magnitude on the ORIGINAL image, nothing to do
+//    with the diff). Fit a straight line between "how busy is this block"
+//    and "how much diff does it show" across all 100 blocks, then score
+//    each block on its RESIDUAL from that fit -- the diff LEFT OVER after
+//    accounting for its own detail level. A block that's simply detailed
+//    no longer looks anomalous by default; a block with excess diff beyond
+//    what its detail explains still does.
+//
+// 2. DUAL-QUALITY CONSISTENCY (raises confidence when the signal is real)
+//    -- the whole analysis now runs TWICE, at two different JPEG
+//    recompression qualities. A genuine local edit's compression-history
+//    mismatch shows up as roughly the SAME anomalous block regardless of
+//    which quality it's recompressed at. A texture-driven false alarm, or
+//    ordinary recompression noise, is much less stable across qualities --
+//    it tends to shift which block looks "worst" as quality changes.
+//    Disagreement between the two passes pulls the score toward neutral
+//    instead of confidently asserting either verdict.
+//
+// ⚠️ CALIBRATION CAVEAT, STILL UNRESOLVED: the constants below
+// (scoreMidpointZ, minResidualDiff) were set from a Python/PIL
+// reproduction of this same algorithm run against real captures from this
+// app's own uploads/ folder -- but the browser's Canvas JPEG re-encoder
+// and Python's libjpeg encoder round differently, so the ABSOLUTE numbers
+// this produces in the browser will differ from that offline test. Use
+// the existing "View Error Level Analysis (testing only)" toggle against
+// a batch of real known-genuine and, if you can get any, known-edited
+// photos to re-tune scoreMidpointZ and minResidualDiff for what the
+// browser itself actually outputs -- don't trust these two numbers as
+// final until that's done.
+//
+// STILL NOT A VERIFIED-GENUINE STAMP: this reduces false alarms on
+// ordinary detailed photos and raises confidence in what it DOES flag,
+// but a well-blended single-pass edit that both recompression passes
+// still converge near remains a real, disclosed blind spot -- same
+// underlying limitation as before, just narrower now.
+const TAMPER_CHECK_CONFIG = {
+  maxDim: 800,          // working resolution -- plenty for this, keeps it fast
+  qualities: [0.75, 0.95],  // two recompression passes -- their agreement is the new consistency signal
+  gridSize: 10,           // splits the image into a 10x10 grid of blocks
+  scoreMidpointZ: 3.0,       // z-score mapped to the middle of the 0-100 score range -- NEEDS RE-TUNING, see caveat above
+  scoreCurveScale: 0.5,       // how steeply the score rises around the midpoint
+  minResidualDiff: 1.5,        // below this (post-texture-normalization), score gets pulled toward neutral -- NEEDS RE-TUNING, see caveat above
+  consistencyBlockRadius: 1,     // the two passes' worst-block picks count as "the same" if within this many grid cells
+  inconsistencyPenalty: 0.45,      // confidence multiplier applied when the two passes disagree on where the anomaly is
+};
+
+// Local pixel-gradient magnitude per pixel -- a cheap texture/detail
+// estimate (not a full Sobel kernel, but enough to tell "flat background"
+// from "busy detail" per block without much extra cost). Computed on the
+// ORIGINAL image only, never on the diff, since it's meant to explain the
+// diff, not be derived from it.
+function _textureMagnitude(data, w, h){
+  const gray = new Float32Array(w * h);
+  for(let i = 0; i < w * h; i++){
+    const idx = i * 4;
+    gray[i] = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+  }
+  const tex = new Float32Array(w * h);
+  for(let y = 1; y < h - 1; y++){
+    for(let x = 1; x < w - 1; x++){
+      const i = y * w + x;
+      const gx = Math.abs(gray[i+1] - gray[i-1]);
+      const gy = Math.abs(gray[i+w] - gray[i-w]);
+      tex[i] = gx + gy;
+    }
+  }
+  return tex;
+}
+
+function _blockMeans(values, w, h, gridSize){
+  const sums = new Float64Array(gridSize * gridSize);
+  const counts = new Int32Array(gridSize * gridSize);
+  const blockW = w / gridSize, blockH = h / gridSize;
+  for(let y = 0; y < h; y++){
+    const by = Math.min(gridSize - 1, Math.floor(y / blockH));
+    for(let x = 0; x < w; x++){
+      const bx = Math.min(gridSize - 1, Math.floor(x / blockW));
+      const bi = by * gridSize + bx;
+      sums[bi] += values[y * w + x];
+      counts[bi] += 1;
+    }
+  }
+  const means = [];
+  for(let i = 0; i < sums.length; i++) means.push(counts[i] ? sums[i] / counts[i] : 0);
+  return means;
+}
+
+function _blockDiffMeans(origData, recompData, w, h, gridSize){
+  const diff = new Float32Array(w * h);
+  for(let y = 0; y < h; y++){
+    for(let x = 0; x < w; x++){
+      const idx = (y * w + x) * 4;
+      const dr = Math.abs(origData[idx]   - recompData[idx]);
+      const dg = Math.abs(origData[idx+1] - recompData[idx+1]);
+      const db = Math.abs(origData[idx+2] - recompData[idx+2]);
+      diff[y * w + x] = (dr + dg + db) / 3;
+    }
+  }
+  return _blockMeans(diff, w, h, gridSize);
+}
+
+// Fits diff ~= a*texture + b by least squares across all 100 blocks,
+// returns the RESIDUALS (actual - predicted) -- the "excess diff beyond
+// what this block's own detail level would explain" that the false-
+// positive fix depends on.
+function _textureResiduals(diffMeans, textureMeans){
+  const n = diffMeans.length;
+  const meanX = textureMeans.reduce((a,b) => a+b, 0) / n;
+  const meanY = diffMeans.reduce((a,b) => a+b, 0) / n;
+  let num = 0, den = 0;
+  for(let i = 0; i < n; i++){
+    num += (textureMeans[i] - meanX) * (diffMeans[i] - meanY);
+    den += (textureMeans[i] - meanX) ** 2;
+  }
+  const a = den > 0.0001 ? num / den : 0;
+  const b = meanY - a * meanX;
+  return diffMeans.map((d, i) => d - (a * textureMeans[i] + b));
+}
+
+function _analyzeOnePass(origData, recompData, textureMeans, w, h, gridSize){
+  const diffMeans = _blockDiffMeans(origData, recompData, w, h, gridSize);
+  const residuals = _textureResiduals(diffMeans, textureMeans);
+
+  const overallMean = residuals.reduce((a,b) => a+b, 0) / residuals.length;
+  const variance = residuals.reduce((a,b) => a + (b-overallMean)**2, 0) / residuals.length;
+  const stdDev = Math.sqrt(variance);
+
+  let maxResidual = -Infinity, maxIdx = 0;
+  for(let i = 0; i < residuals.length; i++){
+    if(residuals[i] > maxResidual){ maxResidual = residuals[i]; maxIdx = i; }
+  }
+  const zScore = stdDev > 0.0001 ? (maxResidual - overallMean) / stdDev : 0;
+  return { zScore, maxResidual, overallMean, maxIdx };
+}
+
+async function computeTamperVerdict(sourceDataUrl){
+  const cfg = TAMPER_CHECK_CONFIG;
+  const img = new Image();
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = reject;
+    img.src = sourceDataUrl;
+  });
+
+  let w = img.naturalWidth, h = img.naturalHeight;
+  if(Math.max(w, h) > cfg.maxDim){
+    const scale = cfg.maxDim / Math.max(w, h);
+    w = Math.round(w * scale);
+    h = Math.round(h * scale);
+  }
+
+  const origCanvas = document.createElement('canvas');
+  origCanvas.width = w; origCanvas.height = h;
+  const origCtx = origCanvas.getContext('2d');
+  origCtx.drawImage(img, 0, 0, w, h);
+  const origData = origCtx.getImageData(0, 0, w, h).data;
+
+  const textureMeans = _blockMeans(_textureMagnitude(origData, w, h), w, h, cfg.gridSize);
+
+  // Run the recompression + texture-residual analysis once per configured
+  // quality -- their agreement (or disagreement) IS the new signal.
+  const passes = [];
+  for(const quality of cfg.qualities){
+    const recompDataUrl = origCanvas.toDataURL('image/jpeg', quality);
+    const recompImg = new Image();
+    await new Promise((resolve, reject) => {
+      recompImg.onload = resolve;
+      recompImg.onerror = reject;
+      recompImg.src = recompDataUrl;
+    });
+    const recompCanvas = document.createElement('canvas');
+    recompCanvas.width = w; recompCanvas.height = h;
+    const recompCtx = recompCanvas.getContext('2d');
+    recompCtx.drawImage(recompImg, 0, 0);
+    const recompData = recompCtx.getImageData(0, 0, w, h).data;
+    passes.push(_analyzeOnePass(origData, recompData, textureMeans, w, h, cfg.gridSize));
+  }
+
+  // Do the two passes point at the same (or an adjacent) grid block as the
+  // worst offender? Real local edits should agree here; texture noise and
+  // ordinary recompression variance usually don't.
+  const gridSize = cfg.gridSize;
+  const [r0, c0] = [Math.floor(passes[0].maxIdx / gridSize), passes[0].maxIdx % gridSize];
+  const [r1, c1] = [Math.floor(passes[1].maxIdx / gridSize), passes[1].maxIdx % gridSize];
+  const consistent = Math.max(Math.abs(r0-r1), Math.abs(c0-c1)) <= cfg.consistencyBlockRadius;
+
+  const rawScores = passes.map(p =>
+    100 / (1 + Math.exp(-(p.zScore - cfg.scoreMidpointZ) / cfg.scoreCurveScale))
+  );
+  const avgRawScore = rawScores.reduce((a,b) => a+b, 0) / rawScores.length;
+
+  // Same "low absolute signal -> pull toward neutral" idea as the
+  // original version, now applied to the texture-normalized residual
+  // instead of the raw diff, PLUS the new cross-quality penalty.
+  const maxResidualAvg = passes.reduce((a,p) => a + Math.max(0, p.maxResidual), 0) / passes.length;
+  let confidence = Math.min(1, maxResidualAvg / cfg.minResidualDiff);
+  if(!consistent) confidence *= cfg.inconsistencyPenalty;
+
+  const score = 50 + confidence * (avgRawScore - 50);
+
+  let band;
+  if(score < 35) band = 'low';
+  else if(score < 65) band = 'uncertain';
+  else band = 'elevated';
+
+  return {
+    score: Math.round(score),
+    band,
+    zScore: Math.round(((passes[0].zScore + passes[1].zScore) / 2) * 100) / 100,
+    maxBlockMean: Math.round(maxResidualAvg * 100) / 100,
+    overallMean: Math.round(((passes[0].overallMean + passes[1].overallMean) / 2) * 100) / 100,
+    consistentAcrossQualities: consistent,  // NEW -- worth surfacing in the UI so field-testing can see WHY a score landed where it did
+  };
+}
+
+async function generateGeotagImage(sourceDataUrl, meta){
+  const img = new Image();
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = reject;
+    img.src = sourceDataUrl;
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+
+  const hasGPS = meta.lat != null && meta.lon != null;
+  // Core info (coordinates + date/time) never depends on the network --
+  // same reliable, API-free pattern already used everywhere else in this
+  // app. The full address below is a nice-to-have on top of that: if the
+  // lookup fails or there's no signal, the panel still shows correctly
+  // with just coordinates + date/time, nothing breaks.
+  let geo = null;
+  if(hasGPS) geo = await reverseGeocode(meta.lat, meta.lon);
+
+  const dt = new Date(meta.timestamp);
+  const weekday = dt.toLocaleDateString('en-GB', { weekday:'long' });
+  const dmy = dt.toLocaleDateString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric' });
+  const time12 = dt.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', hour12:true });
+  const dateTimeLine = `${weekday}, ${dmy}  ${time12}  ${formatGMTOffset(dt)}`;
+  const coordsLine = hasGPS ? `Lat ${meta.lat.toFixed(6)}°   Long ${meta.lon.toFixed(6)}°` : "GPS not available";
+
+  const scale = canvas.width / 1000;
+  const padding = 28 * scale;
+  const pinSize = 32 * scale;
+  const pinGap = 10 * scale;
+
+  const titleFontSize = 30 * scale;
+  const addrFontSize = 19 * scale;
+  const lineFontSize = 18 * scale;
+  const titleLineHeight = titleFontSize * 1.3;
+  const addrLineHeight = addrFontSize * 1.45;
+  const lineLineHeight = lineFontSize * 1.6;
+
+  const textLeft = padding;
+  const titleFirstLineLeft = padding + pinSize + pinGap;   // room for the pin icon, first line only
+  const maxTextWidth = canvas.width - padding*2;
+  const maxTitleFirstLineWidth = canvas.width - titleFirstLineLeft - padding;
+
+  // --- Measure everything FIRST using the exact fonts that will be
+  // drawn, so panel height is exact and nothing overlaps. ---
+  ctx.font = `bold ${titleFontSize}px sans-serif`;
+  let titleLines = [];
+  if(geo){
+    const titleText = geo.flag ? `${geo.flag}  ${geo.title}` : geo.title;
+    // First line has less room (pin icon takes some space); wrap the
+    // rest against the full width.
+    const firstPass = measureWrappedLines(ctx, titleText, maxTitleFirstLineWidth);
+    if(firstPass.length <= 1){
+      titleLines = firstPass;
+    } else {
+      // Re-wrap using full width for line 2 onward for a cleaner fit.
+      titleLines = [firstPass[0]];
+      const rest = titleText.slice(firstPass[0].length).trim();
+      if(rest) titleLines = titleLines.concat(measureWrappedLines(ctx, rest, maxTextWidth));
+    }
+  }
+
+  ctx.font = `${addrFontSize}px sans-serif`;
+  let addrLines = [];
+  if(geo){
+    addrLines = measureWrappedLines(ctx, geo.fullAddress, maxTextWidth);
+  } else if(hasGPS){
+    addrLines = ["Address unavailable (offline)"];
+  } else {
+    addrLines = ["Location unavailable for this photo"];
+  }
+
+  const contentHeight =
+    (titleLines.length ? titleLines.length*titleLineHeight + 12*scale : 0) +
+    addrLines.length*addrLineHeight + 14*scale +
+    lineLineHeight +    // coordinates line
+    lineLineHeight;     // date/time line
+
+  const panelHeight = padding*2 + contentHeight;
+  const panelTop = canvas.height - panelHeight;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.68)';
+  ctx.fillRect(0, panelTop, canvas.width, panelHeight);
+
+  ctx.textBaseline = 'top';
+  let textY = panelTop + padding;
+
+  if(titleLines.length){
+    ctx.font = `bold ${titleFontSize}px sans-serif`;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(titleLines[0], titleFirstLineLeft, textY);
+    drawPinIcon(ctx, textLeft + pinSize/2, textY + titleFontSize*0.55, pinSize);
+    for(let i=1; i<titleLines.length; i++){
+      ctx.fillText(titleLines[i], textLeft, textY + i*titleLineHeight);
+    }
+    textY += titleLines.length*titleLineHeight + 12*scale;
+  }
+
+  ctx.font = `${addrFontSize}px sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.90)';
+  addrLines.forEach((line, i) => ctx.fillText(line, textLeft, textY + i*addrLineHeight));
+  textY += addrLines.length*addrLineHeight + 14*scale;
+
+  ctx.font = `600 ${lineFontSize}px sans-serif`;
+  ctx.fillStyle = '#8cc63f';   // matches the app's accent green, ties it visually to the rest of the UI
+  ctx.fillText(coordsLine, textLeft, textY);
+  textY += lineLineHeight;
+
+  ctx.font = `${lineFontSize}px sans-serif`;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(dateTimeLine, textLeft, textY);
+
+  return canvas.toDataURL('image/jpeg', 0.9);
+}
+
+// Proper MM:SS formatting for the recording countdown -- the old version
+// hardcoded a single-digit format ("REC 0:0X") that only worked for 0-9
+// seconds; at 60 seconds that would have shown nonsense like "REC 0:060".
+function formatRecCountdown(totalSeconds){
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `REC ${m}:${String(s).padStart(2, '0')}`;
+}
+
+async function startVideoRecording(step){
+  if(isRecording) return;
+  const stream = video.srcObject;
+  if(!stream){ await showAppAlert("Camera not ready yet — try again in a moment."); return; }
+
+  // Grab a poster frame right at the start (used as the thumbnail image,
+  // same way photo steps use their captured frame).
+  const posterCanvas = document.createElement('canvas');
+  const vw = video.videoWidth || 720, vh = video.videoHeight || 960;
+  posterCanvas.width = vw; posterCanvas.height = vh;
+  posterCanvas.getContext('2d').drawImage(video, 0, 0, vw, vh);
+  const posterDataUrl = posterCanvas.toDataURL('image/jpeg', 0.85);
+
+  let mimeType = 'video/webm;codecs=vp9,opus';
+  if(!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm;codecs=vp8,opus';
+  if(!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm;codecs=vp9';
+  if(!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+  if(!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';   // let the browser pick
+
+  const recordedChunks = [];
+  try{
+    mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  }catch(err){
+    console.error("MediaRecorder error:", err);
+    await showAppAlert("Video recording isn't supported on this browser.");
+    return;
+  }
+
+  mediaRecorder.ondataavailable = (e) => { if(e.data && e.data.size > 0) recordedChunks.push(e.data); };
+
+  mediaRecorder.onstop = () => {
+    const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'video/webm' });
+    const blobUrl = URL.createObjectURL(blob);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const cap = {
+        isVideo: true,
+        dataUrl: posterDataUrl,          // poster/thumbnail image
+        videoBlobUrl: blobUrl,           // for in-session playback
+        videoDataUrl: reader.result,     // base64, for export
+        mimeType: blob.type,
+        side: null,
+        meta: buildMetadata('camera', `${vw} × ${vh}`)
+      };
+      captures[captureKey(step)] = cap;
+      showCaptured(cap);
+      buildChips(); buildThumbs(); updateProgress();
+      uploadCaptureToBackend(cap, captureKey(step)); // NEW -- fire-and-forget, doesn't block anything above
+      saveSessionState(); // NEW -- persist so this survives a page refresh
+    };
+    reader.readAsDataURL(blob);
+
+    isRecording = false;
+    recIndicator.classList.remove('show');
+    shutterBtn.classList.remove('recording');
+  };
+
+  mediaRecorder.start();
+  isRecording = true;
+  recIndicator.classList.add('show');
+  shutterBtn.classList.add('recording');
+
+  let secondsLeft = 60;
+  recCountdownText.textContent = formatRecCountdown(secondsLeft);
+  const countdownInterval = setInterval(() => {
+    secondsLeft--;
+    if(secondsLeft > 0){
+      recCountdownText.textContent = formatRecCountdown(secondsLeft);
+    } else {
+      clearInterval(countdownInterval);
+    }
+  }, 1000);
+
+  setTimeout(() => {
+    if(mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+  }, 60000);
+}
+
+shutterBtn.addEventListener('click', async () => {
+  if(isRecording || isGeneratingGeotag) return;
+  const step = currentStep();
+  const key = captureKey(step);
+  if(captures[key]){
+    if(captures[key].isVideo && captures[key].videoBlobUrl) URL.revokeObjectURL(captures[key].videoBlobUrl);
+    delete captures[key];
+    showLive();
+    buildChips(); buildThumbs(); updateProgress();
+    return;
+  }
+  // ⚠️ FEATURE: don't allow capture until the required part is actually
+  // detected (green/ready state). camHint's 'ready' class is the single
+  // source of truth used by every detection path (dedicated model, COCO
+  // fallback, pixel heuristic, and the face demo), so checking it here
+  // gates capture consistently across all steps.
+  if(!camHint.classList.contains('ready')){
+    shutterBtn.classList.add('shake');
+    setTimeout(() => shutterBtn.classList.remove('shake'), 400);
+    return;
+  }
+  if(step.video){
+    startVideoRecording(step);
+    return;
+  }
+  if(step.geotag){
+    const sourceCap = findGeotagSourceCap(step);
+    if(!sourceCap) return;   // shouldn't happen -- camHint gates this already
+    isGeneratingGeotag = true;
+    camHintText.textContent = "Generating...";
+    generateGeotagImage(sourceCap.dataUrl, sourceCap.meta)
+      .then((geotaggedDataUrl) => {
+        const cap = {
+          dataUrl: geotaggedDataUrl,
+          side: sourceCap.side,
+          // Carries forward the ORIGINAL Flank photo's location/time, since
+          // this image documents where/when THAT photo was taken -- not
+          // the separate moment this geotag overlay was generated.
+          // originalSource preserves whether that underlying photo came
+          // from the live camera or a gallery upload, since 'source' itself
+          // gets overwritten below to mark this as a generated composite --
+          // without preserving it separately, the details panel had no way
+          // to tell the two apart and always displayed "Gallery Upload".
+          meta: { ...sourceCap.meta, source: 'geotag-generated', originalSource: sourceCap.meta.source },
+          // Same idea for the tamper-check badge -- inherit the ORIGINAL
+          // Flank photo's verdict (if any was computed) rather than
+          // showing "Not checked" on the geotag composite, since this
+          // image documents that same underlying photo, not a new one.
+          tamperVerdict: sourceCap.tamperVerdict || null,
+        };
+        captures[key] = cap;
+        showCaptured(cap);
+        buildChips(); buildThumbs(); updateProgress();
+        uploadCaptureToBackend(cap, key); // NEW -- fire-and-forget
+        saveSessionState(); // NEW
+      })
+      .catch(async (err) => {
+        console.error("Geotag generation failed:", err);
+        await showAppAlert("Couldn't generate the geotagged image — try again.");
+      })
+      .finally(() => { isGeneratingGeotag = false; });
+    return;
+  }
+  const canvas = document.createElement('canvas');
+  const vw = video.videoWidth || 720, vh = video.videoHeight || 960;
+  canvas.width = vw; canvas.height = vh;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, vw, vh);
+
+  // ⚠️ BUG FIX: re-check sharpness on the ACTUAL captured frame, not just
+  // the live feed a moment before -- see assessCanvasSharpness's comment
+  // for why the 400ms-interval live gate alone can't close this gap.
+  const postCaptureSharpness = (!step.video && !step.geotag) ? assessCanvasSharpness(canvas) : { ok:true, sharpness:null, severelyBlurry:false };
+
+  // REJECT TIER -- unlike the WARN case below (flagged for review, photo
+  // kept), severe blur is refused outright here, before the photo is even
+  // added to captures{} -- the person goes straight back to a live
+  // viewfinder with a clear reason, same as if the frame had failed the
+  // live gate a moment earlier. See rejectSharpness's honesty note for
+  // how conservatively this threshold was set on purpose.
+  if(postCaptureSharpness.severelyBlurry){
+    await showAppAlert(`This photo is too blurry to use (sharpness ${postCaptureSharpness.sharpness.toFixed(1)}). Hold the camera steady and try again.`);
+    showLive();
+    return;
+  }
+
+  // NEW -- subject re-verification, same "check the ACTUAL captured
+  // frame, not a moment-earlier live state" principle as the sharpness
+  // re-check just above. Found via real testing: moving the camera fast
+  // right before tapping capture could still save whatever the camera
+  // ended up pointed at, because the 'ready' flag only reflected the
+  // last periodic detection tick. Only runs for steps with a dedicated
+  // model (CATTLE_MODEL_CONFIG entry) -- freeform/video/geotag steps
+  // have no detection to re-check in the first place.
+  const cattleCfg = CATTLE_MODEL_CONFIG[step.id];
+  if(cattleCfg && cattleCfg.url){
+    const reverify = await verifyCapturedFrameStillMatches(step, cattleCfg, canvas);
+    if(!reverify.ok){
+      await showAppAlert(reverify.reason);
+      showLive();
+      return;
+    }
+  }
+
+  // Pixel-Size Normalization -- see NORMALIZE_CONFIG's honesty note
+  // above. Only applies to steps with a matched bounding box from a
+  // dedicated model (lastMatchedBox is null for freeform/video/geotag
+  // steps and for the COCO-fallback/pixel-heuristic paths, which have no
+  // box to normalize against -- those are captured at natural resolution,
+  // unchanged). The video-resolution check guards against the rare case
+  // where the box was measured against a since-changed video resolution.
+  let normalizeResult = { scaleApplied: 1, skipped: true, reason: 'no-matched-box' };
+  let finalCanvas = canvas;
+  if(NORMALIZE_CONFIG.enabled && lastMatchedBox && lastMatchedBoxVideoRes &&
+     lastMatchedBoxVideoRes.w === vw && lastMatchedBoxVideoRes.h === vh){
+    const targetLongEdge = NORMALIZE_CONFIG.perStepTargetLongEdgePx[step.id] || NORMALIZE_CONFIG.targetLongEdgePx;
+    normalizeResult = normalizeCaptureCanvas(canvas, lastMatchedBox, targetLongEdge, NORMALIZE_CONFIG.maxUpscaleFactor);
+    finalCanvas = normalizeResult.canvas;
+  }
+
+  const dataUrl = finalCanvas.toDataURL('image/jpeg', 0.92);
+  const cap = {
+    dataUrl,
+    side: step.sided ? stepSide[step.id] : null,
+    // Resolution now reflects the ACTUAL saved dimensions (post-
+    // normalization), not the raw video frame -- otherwise this would
+    // silently misreport what the stored file really is.
+    meta: buildMetadata('camera', `${finalCanvas.width} × ${finalCanvas.height}`),
+    normalizeScaleApplied: normalizeResult.scaleApplied,
+    normalizeSkipped: normalizeResult.skipped,
+    normalizeSkipReason: normalizeResult.reason,
+    postCaptureBlurWarning: !postCaptureSharpness.ok,
+    postCaptureSharpness: postCaptureSharpness.sharpness,
+  };
+  // Set BEFORE the first display call below so the very first render already
+  // shows "Checking…" rather than a misleading "Not checked" that then
+  // silently flips a moment later.
+  if(!step.video && !step.geotag && !step.demo) cap.tamperChecking = true;
+
+  // ⚡ PERFORMANCE: show the captured photo IMMEDIATELY, don't make the
+  // person stare at a frozen/blank screen while ELA/Tamper Check (and, for
+  // Owner Photo, the location overlay) run -- those are genuinely heavy
+  // synchronous pixel-level operations (multiple full image decode/redraw
+  // passes, scanning up to ~640,000 pixels each) that were previously
+  // blocking the display of the photo itself, which was very likely the
+  // real cause of the lag/black-screen complaints. They now run in the
+  // background afterward and the panel updates in place once ready.
+  captures[key] = cap;
+  showCaptured(cap);
+  buildChips(); buildThumbs(); updateProgress();
+  uploadCaptureToBackend(cap, key); // NEW -- fire-and-forget
+  saveSessionState(); // NEW
+
+  // ELA + Tamper Check on LIVE captures too, at explicit request -- despite
+  // the real, structural limitation discussed at length in chat: these
+  // techniques exist to detect evidence of prior EDITING, and a live
+  // capture goes straight from camera sensor to canvas with no editing
+  // step in between, so there is nothing for either check to find here.
+  // Expect this to reliably show "clean"/low-score on every live photo,
+  // genuine or not -- that is not a bug, it's the honest, correct output
+  // given there's no signal to detect. Kept ONLY for UI consistency
+  // between live and gallery captures, not because it provides real
+  // fraud-detection value here.
+  // ELA/Tamper Check run on every real evidentiary photo step, including
+  // freeform ones (Owner Photo, Scar/Injury) -- those still deserve
+  // forensic scrutiny even without a body-part model to validate content
+  // against. Only Video/Geotag/Demo are excluded: Video has no single-image
+  // equivalent built, Geotag inherits its verdict from its source Flank
+  // photo instead of computing its own, and Demo isn't a real claim photo.
+  if(!step.video && !step.geotag && !step.demo){
+    (async () => {
+      try{
+        cap.elaDataUrl = await generateELA(dataUrl);
+        cap.tamperVerdict = await computeTamperVerdict(dataUrl);
+      }catch(err){
+        console.warn("ELA/tamper-check generation failed (live capture):", err);
+      }
+      cap.tamperChecking = false;
+      sendTamperCheckUpdate(cap); // NEW -- fire-and-forget, backend row + organized_exports catch up once ready
+      // Only refresh the visible panel if this exact capture is still the
+      // one on screen -- the person may have already retaken it, switched
+      // sides, or navigated to a different step by the time this finishes.
+      if(captures[key] === cap && currentStep() === step){ showCaptured(cap); buildThumbs(); }
+    })();
+  }
+
+  // Owner Photo gets the same location/date/time overlay burned directly
+  // into the image that the Geotag step produces -- applied AFTER ELA/
+  // Tamper Check above, not before, so those checks analyze the actual
+  // photographic content rather than the overlay panel itself. Running
+  // them on the overlaid version would risk a false flag: the panel's flat
+  // background and sharp text have very different image statistics than
+  // the photo around it, which is exactly the kind of "block that doesn't
+  // match its surroundings" the Tamper Check looks for -- the same reason
+  // the Geotag step's own composite already inherits its verdict from its
+  // source photo instead of re-analyzing itself. Also runs in the
+  // background now, same reasoning as above -- the photo is already on
+  // screen, this quietly upgrades it to the geotagged version moments later.
+  if(step.id === 'owner_photo' || step.id === 'owner_photo_live'){
+    (async () => {
+      try{
+        cap.dataUrl = await generateGeotagImage(dataUrl, cap.meta);
+      }catch(err){
+        console.warn("Owner Photo location overlay failed (live capture):", err);
+      }
+      if(captures[key] === cap && currentStep() === step){ showCaptured(cap); buildThumbs(); }
+    })();
+  }
+});
+
+galleryBtn.addEventListener('click', () => fileInput.click());
+
+// ---------- Reference photo button + lightbox ----------
+function updateRefButton(step){
+  const ref = REFERENCE_PHOTOS[referenceKeyFor(step)];
+  if(ref && ref.url){
+    refBtn.style.display = 'flex';
+    refBtnThumb.src = ref.url;
+  } else {
+    refBtn.style.display = 'none';   // hide until that step's photo is uploaded
+  }
+}
+refBtn.addEventListener('click', () => {
+  const step = currentStep();
+  const ref = REFERENCE_PHOTOS[referenceKeyFor(step)];
+  if(!ref || !ref.url) return;
+  refLightboxImg.src = ref.url;
+  refLightboxCaption.textContent = ref.caption || step.label;
+  refLightbox.classList.add('show');
+});
+refLightboxClose.addEventListener('click', () => refLightbox.classList.remove('show'));
+refLightbox.addEventListener('click', (e) => { if(e.target === refLightbox) refLightbox.classList.remove('show'); });
+
+fileInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const step = currentStep();
+  const key = captureKey(step);
+
+  // Defense-in-depth: the button itself is hidden for Video steps (see
+  // selectStep), but guard here too in case it's ever reachable another
+  // way -- Video is live-recording only, no gallery-upload path exists.
+  if(step.video){
+    fileInput.value = "";
+    return;
+  }
+
+  // Now that the <input> itself has no `accept` restriction (see comment
+  // on that element for why), validate the file type here in JS instead --
+  // otherwise someone could technically select a non-image file.
+  if(!file.type.startsWith('image/')){
+    await showAppAlert("Please select an image file (JPG or PNG).");
+    fileInput.value = "";
+    return;
+  }
+
+  // exifr works directly on the File object -- no separate ArrayBuffer
+  // read needed first (the old hand-written parser required one; exifr
+  // doesn't).
+  let exifData = null;
+  try{
+    const parsed = await parseExifGPSAndDate(file);
+    if(parsed){
+      exifData = { gps: parsed.gps, dateTime: parsed.dateTime, reason: parsed.reason, errorDetail: parsed.errorDetail };
+    }
+  }catch(err){
+    // This outer catch used to swallow errors silently (console.warn only,
+    // invisible on a phone with no dev console access) -- that was a real
+    // diagnostic blind spot: if anything threw here rather than inside
+    // parseExifGPSAndDate's own internal try/catches, it would produce the
+    // old generic "photo has no location data" fallback with zero detail
+    // on WHY, no matter what actually went wrong. Now it surfaces the real
+    // error message the same way the inner catches already do.
+    console.warn("EXIF parse failed (outer catch):", err);
+    const detail = (err && err.message) ? err.message : String(err);
+    exifData = { gps:null, dateTime:null, reason:"outer-exception", errorDetail: detail };
+  }
+
+  // AI Provenance Check (C2PA digitalSourceType) -- see the extended
+  // honesty note on checkAiProvenance above before trusting this. Gallery
+  // Upload ONLY, by design -- Live Capture's canvas re-encode erases this
+  // metadata entirely, so running it there would be meaningless.
+  const aiProvenance = await checkAiProvenance(file);
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const imgProbe = new Image();
+    imgProbe.onload = async () => {
+      const cfg = CATTLE_MODEL_CONFIG[step.id];
+      const needsValidation = cfg && cfg.url && !step.freeform && !step.video && !step.geotag && !step.demo;
+
+      if(needsValidation){
+        galleryBtn.disabled = true;
+        camHintText.textContent = "Checking photo...";
+        let result;
+        try{
+          result = await validateImageAgainstModel(imgProbe, step, cfg);
+        }catch(err){
+          console.error("Gallery upload validation error:", err);
+          result = { matched:false, wrongSide:false, error:'inference-failed' };
+        }
+        galleryBtn.disabled = false;
+        camHintText.textContent = step.hint;
+
+        if(!result.matched){
+          if(result.wrongSide){
+            await showAppAlert(`This looks like the OTHER side. Please choose a photo of the ${stepSide[step.id]} side, or switch the side toggle.`);
+          } else if(result.error){
+            await showAppAlert("Couldn't check this photo right now (model failed to load or run) — try again, or use the live camera instead.");
+          } else {
+            await showAppAlert(`Couldn't detect the ${step.label} in this photo. Please choose a clearer photo, or use the live camera instead.`);
+          }
+          fileInput.value = "";
+          return;   // reject -- capture slot stays empty
+        }
+      }
+
+        const cap = {
+          dataUrl: ev.target.result,
+          side: step.sided ? stepSide[step.id] : null,
+          meta: buildMetadata('gallery', `${imgProbe.naturalWidth} × ${imgProbe.naturalHeight}`, exifData),
+          // NEW -- the file's own filesystem "last modified" timestamp,
+          // read from the File object itself (not from EXIF content
+          // inside it). This is a genuinely independent signal: unaffected
+          // by upload delay (unlike the future-date check), and not
+          // something a basic EXIF editor touches at all -- closes the
+          // gap where someone with a wrong clock could defeat the
+          // future-date check just by waiting long enough before
+          // uploading.
+          fileLastModified: file.lastModified || null,
+          aiProvenance,   // NEW -- see checkAiProvenance's honesty note above
+        };
+
+        // ELA only makes sense on JPEG (PNG has no lossy-compression
+        // history to analyze this way). Skip for video/geotag/demo steps
+        // where it's not relevant either -- but freeform steps (Owner
+        // Photo, Scar/Injury) DO get checked now, same as any other real
+        // evidentiary photo.
+        const isJpeg = file.type === 'image/jpeg' || file.type === 'image/jpg';
+        if(isJpeg && !step.video && !step.geotag && !step.demo) cap.tamperChecking = true;
+
+        // ⚡ PERFORMANCE: show the uploaded photo IMMEDIATELY, same reasoning
+        // as the live-capture path -- ELA/Tamper Check and the Owner Photo
+        // overlay are heavy synchronous pixel work that shouldn't block the
+        // photo itself from appearing. They now run in the background and
+        // the panel updates in place once ready.
+        captures[key] = cap;
+        showCaptured(cap);
+        buildChips(); buildThumbs(); updateProgress();
+        uploadCaptureToBackend(cap, key); // NEW -- fire-and-forget; also triggers server-side EXIF Detection Signals
+        saveSessionState(); // NEW
+
+        if(isJpeg && !step.video && !step.geotag && !step.demo){
+          (async () => {
+            try{
+              cap.elaDataUrl = await generateELA(ev.target.result);
+              cap.tamperVerdict = await computeTamperVerdict(ev.target.result);
+            }catch(err){
+              console.warn("ELA/tamper-check generation failed:", err);
+            }
+            cap.tamperChecking = false;
+            sendTamperCheckUpdate(cap); // NEW
+            if(captures[key] === cap && currentStep() === step){ showCaptured(cap); buildThumbs(); }
+          })();
+        }
+
+        // Owner Photo gets the same location/date/time overlay burned
+        // directly into the image that the Geotag step produces -- applied
+        // AFTER ELA/Tamper Check above, for the same reason as the live-
+        // capture path (see that comment): analyzing the raw photo first
+        // avoids a false flag from the overlay panel's very different
+        // image statistics. Also backgrounded now, same as above.
+        if(step.id === 'owner_photo' || step.id === 'owner_photo_live'){
+          (async () => {
+            try{
+              cap.dataUrl = await generateGeotagImage(ev.target.result, cap.meta);
+            }catch(err){
+              console.warn("Owner Photo location overlay failed (gallery upload):", err);
+            }
+            if(captures[key] === cap && currentStep() === step){ showCaptured(cap); buildThumbs(); }
+          })();
+        }
+      };
+      imgProbe.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+
+  fileInput.value = "";
+});
+
+
+exportBtn.addEventListener('click', () => {
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    domain: currentDomain,
+    caseDetails: (typeof window.getCaseDetails === 'function') ? window.getCaseDetails() : null,
+    // Includes every step that was actually captured, not just required ones --
+    // so the optional Scar/Injury photo (when taken) makes it into the package
+    // instead of being silently dropped. Dead Flank/Head can have BOTH
+    // sides captured independently -- include a claim entry for each side
+    // that actually has a photo, not just whichever side happens to be
+    // toggled right now (which is all a plain captureKey lookup would see).
+    claim: activeStepList().flatMap(s => {
+      const keysToCheck = isDualSideStep(s) ? sidesForDualStep(s) : [captureKey(s)];
+      return keysToCheck.filter(k => captures[k]).map(k => {
+        const c = captures[k];
+        const base = {
+          step: s.id,
+          label: s.label,
+          type: c.isVideo ? "video" : "photo",
+          side: c.side,
+          timestamp: c.meta.timestamp,
+          gps: (c.meta.lat!=null) ? { lat:c.meta.lat, lon:c.meta.lon, accuracy_m:c.meta.accuracy, maps_url: mapsUrl(c.meta.lat, c.meta.lon) } : null,
+          device: c.meta.device,
+          source: c.meta.source,
+          resolution: c.meta.resolution,
+          // NEW -- everything the SERVER independently verified for this
+          // capture: Clock Integrity flags (clock_tamper_flag,
+          // anchor_drift_flag, clock_drift_flag, capture_upload_gap_flag,
+          // date_changed, date_wrong_at_anchor), Frame Integrity
+          // (server_frame_hash, frame_hash_match), EXIF Integrity
+          // (exif_signals), Duplicate Check (duplicate_image_flag,
+          // duplicate_of), Timezone mismatch -- literally everything shown
+          // on screen, now also in the exported file. null if this
+          // specific capture never successfully reached the server (still
+          // queued offline) -- present the moment it does.
+          server_verification: c.backendResult || null,
+          still_queued_offline: !!c.queuedOffline,
+        };
+        if(c.isVideo){
+          // poster_base64 is a still frame for quick preview without decoding
+          // the whole video; video_base64 is the actual clip.
+          return { ...base, poster_base64: c.dataUrl, video_base64: c.videoDataUrl, video_mime: c.mimeType };
+        }
+        return { ...base, image_base64: c.dataUrl, ela_base64: c.elaDataUrl || null, tamper_check: c.tamperVerdict || null };
+      });
+    })
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `cattle_${currentDomain}_claim_${Date.now()}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+// =========================================================================
+// DETECTION -- readiness heuristic (fallback), COCO pre-filter, dedicated models
+// =========================================================================
+const DETECT_SAMPLE_W = 60;
+let detectSampleH = 80;
+let guideMaskAlpha = null;
+let maskBoxKey = "";
+let prevInsideLuma = null;
+let readyStreak = 0;
+let isReady = false;
+let detectTimer = null;
+
+const detectCanvas = document.createElement('canvas');
+const detectCtx = detectCanvas.getContext('2d', { willReadFrequently:true });
+const maskCanvas = document.createElement('canvas');
+const maskCtx = maskCanvas.getContext('2d', { willReadFrequently:true });
+
+// =========================================================================
+// FRAME QUALITY GATE -- blur / brightness / resolution, checked on EVERY
+// tick regardless of which detection path (dedicated model, COCO fallback,
+// pixel heuristic, freeform/video) ends up running. Runs FIRST in
+// analyzeTick(), before any of those -- a frame that fails this never gets
+// to "ready" no matter what the animal-detection step below finds,
+// closing the actual gap: previously ALL of blur, brightness, and
+// resolution were completely unchecked -- a blurry or dangerously dark
+// photo could sail straight through as long as SOMETHING resembling the
+// right body part was detected in it.
+//
+// Occupancy (is the animal actually filling enough of the frame),
+// occlusion/truncation (is the detected part cut off at the frame edge),
+// and head visibility are handled separately, INSIDE
+// analyzeCattlePartFrame below -- they need the YOLO bounding box, which
+// only exists on the dedicated-model path, not here.
+//
+// HONESTY NOTE: "head visibility" is NOT a separate dedicated detector --
+// there's no model trained specifically to judge whether a head is
+// visible/unobstructed. For steps whose required class is head-related,
+// it's enforced via the SAME occupancy + edge-truncation checks used for
+// every other part -- a head that's too small in frame or cut off at the
+// edge fails those same checks. That's a real, useful constraint, but
+// it's not the same thing as a detector that understands occlusion by,
+// say, another animal or a person's hand -- flagging that distinction
+// here so it isn't oversold later.
+//
+// "Angle" is likewise not a NEW check -- the existing sided-detection
+// logic (wantSide / wrongSideIdx matching, further down) already gates
+// capture on left-vs-right orientation matching the toggle. What it does
+// NOT cover: fine-grained camera tilt/pitch (e.g. shooting from too high
+// or too low an angle) -- no model here measures that; only left/right
+// orientation is actually checked.
+const FRAME_QUALITY_CONFIG = {
+  sampleW: 160, sampleH: 120,      // small working resolution -- plenty for brightness/blur, keeps this cheap enough to run every 400ms tick
+  minBrightness: 40,                 // mean luma 0-255 -- below this, treated as too dark to trust any detection made on it
+  maxBrightness: 230,                  // above this, likely blown-out/overexposed (e.g. direct sun glare, flash too close)
+  // NOTE: sharpness is no longer configured here -- see
+  // POST_CAPTURE_SHARPNESS_CONFIG below, now shared by both the live gate
+  // and the post-capture check (was two separate, disagreeing checks).
+  minVideoShortSide: 480,                 // native camera stream resolution floor (video.videoWidth/videoHeight) -- catches a badly constrained camera (old device, low-res webcam) before capture even starts
+  minOccupancyRatio: 0.06,                  // GLOBAL FLOOR, all steps -- matched bounding box area / frame area -- below this, animal/part is too small in frame ("move closer")
+  edgeMarginRatio: 0.015,                     // if the bbox comes within this fraction of the frame's width/height from any edge, treat that side as cut off
+
+  // ---------------------------------------------------------------------
+  // OPTION B -- rough distance control via occupancy BAND, not just a
+  // floor. UNSET (null) by default for every step below -- see
+  // OCCUPANCY_BAND_CONFIG's own comment for why these are deliberately
+  // left for YOU to fill in from real field testing, not guessed here.
+  // ---------------------------------------------------------------------
+};
+
+// ⚠️ HONESTY NOTE, READ BEFORE SETTING ANY NUMBER BELOW: occupancy% alone
+// cannot distinguish "wrong distance" from "a genuinely bigger or smaller
+// animal" -- a calf photographed up close and an adult cow photographed
+// from further back can produce the exact same occupancy%. Adding a
+// per-step MAXIMUM here (on top of the existing minimum) gives you rough
+// distance CONTROL, not real calibration -- it makes photos of the SAME
+// step more comparable to each other, nothing more. Too tight a band
+// rejects legitimate photos of unusually large/small animals; too loose
+// doesn't actually control distance. There is no correct default value --
+// it has to come from watching the "occupancy" number in the Quality
+// Debug overlay (top-right of the viewfinder) against several REAL
+// animals at a distance that looks right for that step, then setting a
+// band around what you actually observe. Left at `null` (disabled) for
+// every step until you've done that -- an unset step behaves exactly as
+// before, floor-only, no upper bound.
+const OCCUPANCY_BAND_CONFIG = {
+  flank_live: { max: null },        // e.g. after field testing you might set { max: 0.35 }
+  front_view_live: { max: null },
+  rear_view_live: { max: null },
+  ear_tag_live: { max: null, min: 0.01 },    // NEW -- ear tags are naturally tiny in frame, and getting
+  flank: { max: null },                       // close enough to hit the 6% global floor pushes most phone
+  head: { max: null },                        // cameras past their macro focus distance, so the shot blurs
+  ear_tag: { max: null, min: 0.01 },         // out and detection loses the tag entirely before ever
+                                               // reaching 6% occupancy. Set to 1% per direct testing against
+                                               // real capture attempts -- loosen further if still too strict,
+                                               // tighten if unreadable tiny tags start getting accepted.
+};
+
+// =========================================================================
+// PIXEL-SIZE NORMALIZATION -- makes the detected animal/part occupy a
+// consistent pixel size across every photo of a given step, regardless of
+// how close or far the camera actually was. Runs at the moment of
+// capture: the just-taken photo is digitally scaled so lastMatchedBox
+// (the bounding box that made this frame "ready") ends up with a fixed
+// longer-edge pixel length.
+//
+// ⚠️ HONESTY NOTE, UPSCALING (read before trusting downstream precision):
+// this can only SHRINK detail that already exists, or STRETCH what's
+// there across more pixels -- it cannot invent detail that was never
+// captured. A distant shot upscaled to match a close-up's pixel size will
+// look softer, not equally sharp, even though the two end up the same
+// pixel dimensions. maxUpscaleFactor below exists specifically to bound
+// this: beyond that factor, normalization is SKIPPED entirely (the photo
+// keeps its natural resolution) rather than degrading it further --
+// scaleApplied/normalizeSkipped are stored per capture precisely so any
+// future consumer of these photos can tell which ones were stretched and
+// weight results accordingly, rather than treating all "same pixel size"
+// photos as equally reliable.
+//
+// STILL NOT REAL-WORLD CALIBRATION: this makes photos comparable to EACH
+// OTHER (same step, same relative pixel size), not measured in actual
+// mm/cm -- that still needs an external reference (marker/ear-tag/depth
+// sensor), same hard limit discussed earlier. This is a different,
+// complementary idea, not a replacement for that.
+const NORMALIZE_CONFIG = {
+  enabled: true,
+  targetLongEdgePx: 640,              // default target: the matched box's longer edge gets scaled to this many pixels
+  maxUpscaleFactor: 2.0,                // never stretch more than 2x -- beyond this, skip normalization rather than produce a heavily-degraded photo
+  perStepTargetLongEdgePx: {              // optional per-step override -- unset steps use targetLongEdgePx above
+    ear_tag_live: 300,   // NEW -- ear tags are naturally small in frame, and after lowering the
+    ear_tag: 300,         // occupancy floor to capture at all (see OCCUPANCY_BAND_CONFIG), the raw
+                           // detected box can be small enough that reaching the default 640px target
+                           // needs more than maxUpscaleFactor's 2x cap, so normalization silently
+                           // SKIPS entirely (confirmed via case_summary.txt: "Pixel Norm.: Skipped
+                           // (exceeds-max-upscale)") -- OCR then runs on the raw, un-upscaled tiny
+                           // tag and reads garbage. A lower 300px target is reachable within the 2x
+                           // cap from a much smaller starting box, so normalization actually applies.
+  },
+};
+
+// canvas: the just-captured full-resolution photo canvas (video pixel
+// space). box: {x1,y1,x2,y2} in that SAME pixel space (see
+// lastMatchedBox above -- already guaranteed to match since capture uses
+// video.videoWidth/videoHeight directly, same as detection).
+function normalizeCaptureCanvas(canvas, box, targetLongEdgePx, maxUpscaleFactor){
+  const boxW = box.x2 - box.x1, boxH = box.y2 - box.y1;
+  const boxLongEdge = Math.max(boxW, boxH);
+  if(!(boxLongEdge > 0)) return { canvas, scaleApplied: 1, skipped: true, reason: 'invalid-box' };
+
+  let scale = targetLongEdgePx / boxLongEdge;
+  if(scale > maxUpscaleFactor){
+    // Would need to stretch more than the allowed cap -- skip rather than
+    // degrade quality further; the photo is kept at its natural resolution.
+    return { canvas, scaleApplied: 1, skipped: true, reason: 'exceeds-max-upscale' };
+  }
+  if(Math.abs(scale - 1) < 0.02){
+    return { canvas, scaleApplied: 1, skipped: false, reason: 'already-close-to-target' };
+  }
+
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = Math.max(1, Math.round(canvas.width * scale));
+  outCanvas.height = Math.max(1, Math.round(canvas.height * scale));
+  const ctx = outCanvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(canvas, 0, 0, outCanvas.width, outCanvas.height);
+  return { canvas: outCanvas, scaleApplied: Math.round(scale * 1000) / 1000, skipped: false, reason: null };
+}
+
+// ⚠️ REMOVED: the old global-mean sharpness proxy that used to live here
+// (_frameSharpness) is no longer used by anything -- both the live gate
+// and the post-capture check now share _computeBlockMaxSharpnessFromSource
+// / _blockMaxSharpness below instead (see assessBasicFrameQuality's
+// comment for why they were unified). Left this note rather than the
+// dead function itself.
+
+const qualityCanvas = document.createElement('canvas');
+qualityCanvas.width = FRAME_QUALITY_CONFIG.sampleW;
+qualityCanvas.height = FRAME_QUALITY_CONFIG.sampleH;
+const qualityCtx = qualityCanvas.getContext('2d', { willReadFrequently: true });
+
+// ⚠️ CALIBRATION CAVEAT, same spirit as the Tamper Check's: minBrightness/
+// maxBrightness below are reasonable starting estimates, NOT validated
+// against a real labeled set of dark/bright field photos yet.
+//
+// SHARPNESS specifically now shares the EXACT SAME block-max computation
+// and threshold as the post-capture check below (POST_CAPTURE_SHARPNESS_
+// CONFIG, _blockMaxSharpness) -- these used to be two separate
+// implementations (this one: a small fixed-160x120 global-mean check; the
+// post-capture one: a validated, resolution-proportional block-max
+// check), which meant the SAME word "sharpness" quietly meant two
+// different numbers depending on which screen you looked at, and this
+// live gate's threshold (an old, never-updated 4.5) had nothing to do
+// with the real calibration work done on the post-capture number. Fixed
+// by having both call the identical function -- one calculation, shown
+// consistently everywhere.
+// ⚠️ PERFORMANCE TRADE-OFF, worth knowing: the shared calculation works at
+// a meaningfully higher resolution than the old 160x120 live check did,
+// and now runs every 400ms (analyzeTick's interval) instead of just once
+// per capture. If this noticeably slows down framing on a real phone,
+// that's the reason -- worth flagging if it does, so the live gate can be
+// throttled (e.g. every 2nd or 3rd tick) without touching the post-capture
+// check's accuracy.
+function assessBasicFrameQuality(video){
+  const cfg = FRAME_QUALITY_CONFIG;
+  if(!video.videoWidth || !video.videoHeight) return { ok:false, reason:"Camera not ready" };
+
+  if(Math.min(video.videoWidth, video.videoHeight) < cfg.minVideoShortSide){
+    return { ok:false, reason:"Camera resolution too low for a reliable capture" };
+  }
+
+  qualityCtx.drawImage(video, 0, 0, cfg.sampleW, cfg.sampleH);
+  const data = qualityCtx.getImageData(0, 0, cfg.sampleW, cfg.sampleH).data;
+  const n = cfg.sampleW * cfg.sampleH;
+  const gray = new Float32Array(n);
+  let sum = 0;
+  for(let i = 0; i < n; i++){
+    const o = i * 4;
+    const luma = 0.299*data[o] + 0.587*data[o+1] + 0.114*data[o+2];
+    gray[i] = luma;
+    sum += luma;
+  }
+  const brightness = sum / n;
+  if(brightness < cfg.minBrightness) return { ok:false, reason:"Too dark — move to better light" };
+  if(brightness > cfg.maxBrightness) return { ok:false, reason:"Too bright / overexposed — reduce glare or flash" };
+
+  // Shared with the post-capture check -- see the comment above.
+  const sharpness = _computeBlockMaxSharpnessFromSource(video, video.videoWidth, video.videoHeight);
+  if(sharpness < POST_CAPTURE_SHARPNESS_CONFIG.minSharpness) return { ok:false, reason:"Too blurry — hold steady and refocus", brightness, sharpness };
+
+  return { ok:true, reason:null, brightness, sharpness };
+}
+
+// ⚠️ BUG FOUND AND FIXED, THREE TIMES (all real, confirmed on real
+// blurry photos wrongly scored "sharp" -- not theoretical concerns):
+//
+// FIRST BUG: the original version reused the live gate's tiny 160x120
+// canvas. That downsampling (~10x from a typical 1700x1280 photo) shrinks
+// a real motion-blur streak down to just a few pixels -- small enough
+// that the blur's own edge still reads as a fairly steep gradient in the
+// shrunken sample, even though the original was clearly smeared.
+//
+// SECOND BUG, found when a real motion-blurred photo (1706x1280 native)
+// STILL scored "sharp" (27.7) even after the first fix: the first fix
+// used a FIXED 480x360 target regardless of the source photo's actual
+// resolution -- downsampling a small test image to 480x360 is a mild
+// reduction; downsampling this app's real 1706x1280 captures to the SAME
+// fixed target is much more aggressive, reproducing the exact same
+// blur-hiding problem at a different scale. Fixed by sizing the working
+// canvas as a RATIO of the source resolution instead, plus requesting
+// high-quality resampling explicitly.
+//
+// THIRD BUG, found when a DIFFERENT real blurry photo still scored 12
+// against a threshold of 10 (barely wrong, not obviously wrong) --
+// tracked down to a mistake in how this fix was VALIDATED, not the
+// algorithm's design: the Python test script used numpy's np.gradient(),
+// which divides central differences by 2 -- the actual deployed JS
+// formula below does NOT divide by 2. Every "sharp" and "blurred"
+// calibration number from the previous validation was silently HALF the
+// real scale, which is why the threshold (10) ended up sitting almost
+// exactly on top of where real blurry photos score, instead of safely
+// below them. Re-validated using the EXACT JS formula this time
+// (confirmed: this real photo's corrected Python score is 10.3, matching
+// the app's actual reported 12 closely -- the small remaining gap is
+// normal Canvas-vs-PIL resampling variance, not a mystery):
+//   sharp (clean or with realistic ISO noise added): ~45-46
+//   blurred, mild through severe (20px-70px motion kernel):  ~4-10
+//   THIS REAL blurry photo (app reported 12):                ~10.3
+// Sharp sits far away from every blur severity tested -- lots of safe
+// margin to raise the threshold well above the highest blurred score.
+//
+// ⚠️ HONEST LIMIT ON THIS VALIDATION: still leans on synthetic blur +
+// a separate Python image library, not the app's actual live browser
+// Canvas engine (which I cannot run in this environment). The formula
+// mismatch that caused bug #3 is now fixed and cross-checked against one
+// real photo with a known real app-reported score, which is meaningfully
+// stronger evidence than the synthetic-only testing before it -- but
+// real on-device confirmation across MORE real photos (not just one)
+// is still the actual bar, not this offline test alone.
+const POST_CAPTURE_SHARPNESS_CONFIG = {
+  downsampleRatio: 0.28,        // working size is 28% of the SOURCE photo's actual resolution -- see the ratio-vs-blur-severity table above
+  minWorkingLongEdge: 340,        // floor, so a smaller-than-expected source photo doesn't get downsampled into uselessness
+  maxWorkingLongEdge: 700,          // ceiling, purely for performance -- this only runs once per capture, but no reason to go beyond what the validation actually tested
+  minSharpness: 23.5,                 // WARN tier -- corrected for a confirmed systematic offset -- see the block comment below for why this isn't just a re-guess
+  blockGrid: 8,                         // 8x8 grid for the block-max computation below
+
+  // ⚠️ REJECT tier -- a SECOND, stricter threshold. Below this, the
+  // capture is refused outright (forced retake with an explanation)
+  // instead of just flagged for review. Deliberately set well below the
+  // WARN threshold, anchored to a synthetic "severe blur" test (70px
+  // motion kernel, clearly unusable: ~13.4 Python, ~14.9 offset-corrected)
+  // and then raised slightly (15 -> 18) to widen the reject net a bit,
+  // while checking it stays safely clear of real data: all three real
+  // blurry photos confirmed so far predict to ~20.2-22.8 offset-corrected
+  // -- still comfortably ABOVE 18, so none of them would flip from warn
+  // to auto-reject with this change. ⚠️ UNLIKE the warn threshold, this
+  // number has NOT been validated against any real confirmed-severely-
+  // blurry photo yet (only the one synthetic reference) -- if this fires
+  // on a real photo, or fails to fire on an obviously-unusable one, send
+  // it in the same way as before so this can be corrected with real
+  // evidence rather than left as a guess.
+  rejectSharpness: 18,
+};
+const postCaptureQualityCanvas = document.createElement('canvas');
+const postCaptureQualityCtx = postCaptureQualityCanvas.getContext('2d', { willReadFrequently: true });
+
+// SHARED by both the live Frame Quality Gate (assessBasicFrameQuality,
+// above) and the post-capture safety net (assessCanvasSharpness, below)
+// -- ONE calculation, not two implementations that happen to look
+// similar. source can be a <video> element OR a <canvas> (a captured
+// frame); srcW/srcH must be that source's actual native dimensions.
+function _computeBlockMaxSharpnessFromSource(source, srcW, srcH){
+  const cfg = POST_CAPTURE_SHARPNESS_CONFIG;
+  let workW = Math.round(srcW * cfg.downsampleRatio);
+  let workH = Math.round(srcH * cfg.downsampleRatio);
+  const longEdge = Math.max(workW, workH);
+  if(longEdge < cfg.minWorkingLongEdge){
+    const scale = cfg.minWorkingLongEdge / longEdge;
+    workW = Math.round(workW * scale); workH = Math.round(workH * scale);
+  } else if(longEdge > cfg.maxWorkingLongEdge){
+    const scale = cfg.maxWorkingLongEdge / longEdge;
+    workW = Math.round(workW * scale); workH = Math.round(workH * scale);
+  }
+  workW = Math.max(1, workW); workH = Math.max(1, workH);
+
+  postCaptureQualityCanvas.width = workW;
+  postCaptureQualityCanvas.height = workH;
+  // Explicitly request high-quality resampling -- without this, the
+  // browser is free to use a faster, lower-quality downsample for a big
+  // size reduction, which risks aliasing a blurry image into looking
+  // artificially sharper.
+  postCaptureQualityCtx.imageSmoothingEnabled = true;
+  postCaptureQualityCtx.imageSmoothingQuality = 'high';
+  postCaptureQualityCtx.drawImage(source, 0, 0, workW, workH);
+
+  const data = postCaptureQualityCtx.getImageData(0, 0, workW, workH).data;
+  const n = workW * workH;
+  const gray = new Float32Array(n);
+  for(let i = 0; i < n; i++){
+    const o = i * 4;
+    gray[i] = 0.299*data[o] + 0.587*data[o+1] + 0.114*data[o+2];
+  }
+  return _blockMaxSharpness(gray, workW, workH, cfg.blockGrid);
+}
+
+// ⚠️ SAFETY NET, SEPARATE FROM THE BUGS ABOVE: even with both fixes, the
+// live Frame Quality Gate only samples the camera every 400ms
+// (analyzeTick's interval) -- a person can tap the shutter at ANY moment,
+// including in the gap right after a "sharp enough" check passed and
+// right before the phone actually moves (hand shake at the exact instant
+// of tapping). The gate checking a LIVE frame a moment earlier does not
+// guarantee the frame actually captured a moment later is equally sharp --
+// a real, structural timing gap, not something the interval-based gate
+// alone can close. This function re-checks SHARPNESS ONLY (brightness/
+// resolution don't meaningfully change tap-to-tap the way focus/motion
+// blur can) on the ACTUAL captured canvas, right after the snapshot is
+// taken -- see its call site in the shutter handler below.
+// ⚠️ FOURTH BUG, and a genuine change of technique this time, not just a
+// number: the GLOBAL MEAN gradient (used everywhere above) conflates two
+// different things -- "is this photo in focus" and "how much of the frame
+// happens to have detailed content at all". A real sharp photo of a scene
+// that's MOSTLY a plain wall or a glass partition, with only a small
+// region of real detail (e.g. legible whiteboard writing, a laptop
+// taskbar), gets its mean dragged down by all that plain area -- even
+// though the detailed part IS genuinely crisp. Confirmed on two real
+// photos sent in for exactly this reason (a glass-partition/whiteboard
+// scene and a monitor-reflection scene) -- both scored LOWER on the mean
+// than a real confirmed-blurry photo, despite being genuinely sharp.
+//
+// FIX: instead of the mean across the whole frame, take the MAXIMUM
+// per-block mean gradient across an 8x8 grid -- "does this photo have
+// ANY region that's genuinely crisp", which doesn't get diluted by large
+// plain areas the way a global average does. Real blur (motion or
+// defocus) degrades detail EVERYWHERE in the frame including whatever
+// would otherwise be the most-detailed region, so a blurred photo's best
+// block still reads as mediocre; a genuinely sharp photo's best block
+// reads clearly high regardless of how much of the rest of the frame is
+// blank.
+//
+// ⚠️ KNOWN REMAINING WEAKNESS, confirmed by testing, not theoretical: a
+// single small, very high-contrast edge (e.g. a light object against a
+// dark background) CAN still pull one block's score up somewhat even
+// under real motion blur -- this is the exact original bug from earlier
+// in this file's history. Max-based scoring is MORE exposed to this than
+// the mean was, not less. The threshold below is set with that in mind.
+//
+// VALIDATED against all FOUR real confirmed photos available at the time
+// of this fix (two blurry, two genuinely sharp, covering both known
+// failure modes):
+//   Blurry #1 (strong-edge case):        block-max = 21.18
+//   Blurry #2 (motion blur, low light):  block-max = 18.68
+//   Sharp #1 (whiteboard scene):         block-max = 26.68
+//   Sharp #2 (monitor reflection scene): block-max = 23.09
+//
+// ⚠️ FIFTH BUG, and the most important one to understand: a threshold of
+// 22 (picked from the table above) still misclassified a THIRD real
+// blurry photo (app reported 22.6, just above 22) even though this
+// technique's own logic was sound and the photo WAS genuinely blurry.
+// Root cause, confirmed with paired data (same photo, both my offline
+// Python estimate AND the real app-reported score known): there is a
+// CONSISTENT, SYSTEMATIC ~+1.5 point gap between this Python-based
+// offline validation and what the real browser's Canvas actually
+// computes for the same photo -- confirmed twice, in the same direction,
+// close enough in magnitude both times to be a genuine bias, not noise:
+//   real motion-blur photo (mean-based):      Python 10.32 -> app 12    (+1.68)
+//   this block-max photo:                     Python 21.11 -> app 22.6  (+1.49)
+// Likely cause: Chrome's Canvas "high quality" downsampling doesn't use
+// the exact same resampling algorithm as PIL's LANCZOS filter used in
+// Python testing -- close, but not identical, and the gap is consistent
+// enough to correct for rather than just re-guess around.
+// minSharpness is set to 23.5 -- the offset-CORRECTED threshold (roughly
+// the old 22 + the confirmed ~1.5 offset), not a fresh guess.
+//
+// ⚠️ HONEST STATE OF THIS CHECK, worth reading before trusting it
+// further: five real photos have now been tested (three blurry, two
+// sharp), across two different scoring techniques (global mean, then
+// block-max), and the margin between "most blurry-like sharp photo" and
+// "most sharp-like blurry photo" has stayed genuinely tight (roughly
+// 1-2 points) throughout -- even after fixing three real, distinct bugs
+// (resolution, resampling quality, and now this offset). That tightness
+// is no longer looking like "needs one more fix" -- it may be close to
+// the actual limit of what a single client-side gradient-based statistic
+// can reliably distinguish for arbitrary real-world photo content. This
+// check is NOT blocking (see its call site) specifically because of that
+// uncertainty -- treat its warning as a helpful hint worth a second look,
+// not a reliable verdict. A structurally different technique (e.g.
+// measuring edge TRANSITION WIDTH rather than gradient magnitude, closer
+// to how real camera-lens sharpness/MTF testing works) would likely be
+// more robust, but is meaningfully more engineering than tuning this
+// same approach further -- worth discussing if this keeps misfiring.
+function _blockMaxSharpness(gray, w, h, grid){
+  const blockW = Math.floor(w / grid), blockH = Math.floor(h / grid);
+  let maxBlockMean = 0;
+  for(let by = 0; by < grid; by++){
+    for(let bx = 0; bx < grid; bx++){
+      const y0 = Math.max(1, by*blockH), y1 = Math.min(h-1, (by+1)*blockH);
+      const x0 = Math.max(1, bx*blockW), x1 = Math.min(w-1, (bx+1)*blockW);
+      let sum = 0, count = 0;
+      for(let y = y0; y < y1; y++){
+        for(let x = x0; x < x1; x++){
+          const i = y*w + x;
+          sum += Math.abs(gray[i+1]-gray[i-1]) + Math.abs(gray[i+w]-gray[i-w]);
+          count++;
+        }
+      }
+      if(count > 0){
+        const mean = sum / count;
+        if(mean > maxBlockMean) maxBlockMean = mean;
+      }
+    }
+  }
+  return maxBlockMean;
+}
+
+function assessCanvasSharpness(sourceCanvas){
+  const cfg = POST_CAPTURE_SHARPNESS_CONFIG;
+  const sharpness = _computeBlockMaxSharpnessFromSource(sourceCanvas, sourceCanvas.width, sourceCanvas.height);
+  return {
+    ok: sharpness >= cfg.minSharpness,
+    sharpness,
+    severelyBlurry: sharpness < cfg.rejectSharpness,   // the stricter reject tier, checked separately from the warn-only 'ok' flag
+  };
+}
+
+// NEW -- post-capture SUBJECT re-verification, same principle as
+// assessCanvasSharpness above but for "is the required thing actually
+// still in this exact captured frame", not just blur. Found via real
+// testing: the live 'ready' indicator reflects the last periodic
+// detection tick (every few hundred ms), but the shutter reads whatever
+// the camera shows at the INSTANT of the tap -- if the camera moves in
+// that gap, a stale green 'ready' state let a completely wrong frame
+// (e.g. a desk, not the animal) get captured and saved as if it had
+// been verified. Re-running detectCattlePartOnSource against the FINAL
+// captured canvas closes that gap exactly the way the sharpness re-check
+// already closes it for blur. Only applies to steps with a dedicated
+// model (CATTLE_MODEL_CONFIG entry) -- freeform/video/geotag/COCO-
+// fallback/pixel-heuristic steps aren't covered by this specific check.
+async function verifyCapturedFrameStillMatches(step, cfg, canvas){
+  try{
+    const det = await detectCattlePartOnSource(step, cfg, canvas, canvas.width, canvas.height);
+    if(!det.session) return { ok: true };  // model unavailable -- don't block capture over an infra issue
+    if(det.matched && det.boxCheck.ok) return { ok: true };
+    if(det.wrongSide) return { ok: false, reason: "The camera moved — that's the wrong side now. Reframe and try again." };
+    return { ok: false, reason: "The camera moved before capturing — reframe and try again." };
+  }catch(err){
+    console.error("Post-capture verification error:", err);
+    return { ok: true };  // an error here shouldn't block a capture that otherwise looked fine live
+  }
+}
+
+// Shared by analyzeCattlePartFrame's occupancy/edge checks below --
+// [x1,y1,x2,y2] is in ORIGINAL video pixel coordinates (already
+// un-letterboxed by decodeYoloOutput), so this compares directly against
+// video.videoWidth/videoHeight, not the model's resized input.
+//
+// maxOccupancyRatio (Option B, see OCCUPANCY_BAND_CONFIG's honesty note
+// above): optional per-step upper bound, rough distance CONTROL rather
+// than real calibration. null/undefined = disabled, floor-only behavior
+// unchanged from before this was added.
+function assessBoxOccupancyAndTruncation(x1, y1, x2, y2, videoW, videoH, maxOccupancyRatio, minOccupancyOverride){
+  const cfg = FRAME_QUALITY_CONFIG;
+  const boxArea = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  const frameArea = videoW * videoH;
+  const occupancy = frameArea > 0 ? boxArea / frameArea : 0;
+  const minOccupancy = (minOccupancyOverride != null) ? minOccupancyOverride : cfg.minOccupancyRatio;
+  if(occupancy < minOccupancy){
+    return { ok:false, reason:"Too far away — move closer so it fills more of the frame", occupancy };
+  }
+  if(maxOccupancyRatio != null && occupancy > maxOccupancyRatio){
+    return { ok:false, reason:"Too close — step back a little", occupancy };
+  }
+  const marginX = videoW * cfg.edgeMarginRatio, marginY = videoH * cfg.edgeMarginRatio;
+  const touchesEdge = (x1 < marginX) || (y1 < marginY) || (x2 > videoW - marginX) || (y2 > videoH - marginY);
+  if(touchesEdge){
+    return { ok:false, reason:"Part of the animal is cut off at the frame edge — recenter and step back", occupancy };
+  }
+  return { ok:true, reason:null, occupancy };
+}
+
+function currentGuidePath(){
+  const step = currentStep();
+  if(!step.sided && !step.border) return "";
+  const key = borderKeyFor(step);
+  return (BORDERS[key] && BORDERS[key].path) || "";
+}
+
+function rebuildGuideMaskIfNeeded(boxW, boxH){
+  const path = currentGuidePath();
+  if(!path){ guideMaskAlpha = null; return; }
+  const key = currentStepIdx + "_" + currentDomain + "_" + (stepSide[currentStep().id]||"") + "_" + Math.round(boxW) + "x" + Math.round(boxH);
+  if(key === maskBoxKey && guideMaskAlpha) return;
+  maskBoxKey = key;
+  detectSampleH = Math.max(20, Math.round(DETECT_SAMPLE_W * boxH / boxW));
+  maskCanvas.width = DETECT_SAMPLE_W; maskCanvas.height = detectSampleH;
+  detectCanvas.width = DETECT_SAMPLE_W; detectCanvas.height = detectSampleH;
+  const scale = Math.min(boxW/1000, boxH/1000);
+  const offX = (boxW - 1000*scale)/2;
+  const offY = (boxH - 1000*scale)/2;
+  maskCtx.clearRect(0,0,DETECT_SAMPLE_W,detectSampleH);
+  maskCtx.save();
+  maskCtx.scale(DETECT_SAMPLE_W/boxW, detectSampleH/boxH);
+  maskCtx.translate(offX, offY);
+  maskCtx.scale(scale, scale);
+  maskCtx.fillStyle = '#fff';
+  maskCtx.fill(new Path2D(path));
+  maskCtx.restore();
+  const data = maskCtx.getImageData(0,0,DETECT_SAMPLE_W,detectSampleH).data;
+  guideMaskAlpha = new Uint8Array(DETECT_SAMPLE_W*detectSampleH);
+  for(let i=0;i<guideMaskAlpha.length;i++) guideMaskAlpha[i] = data[i*4+3] > 128 ? 1 : 0;
+  prevInsideLuma = null;
+}
+
+function setReadyUI(ready){
+  if(ready === isReady) return;
+  isReady = ready;
+  guideMain.classList.toggle('ready', ready);
+  guideHalo.classList.toggle('ready', ready);
+  camHint.classList.toggle('ready', ready);
+  camHintText.textContent = ready ? "Good framing — capture now" : currentStep().hint;
+}
+
+function analyzeFrame(){
+  if(viewfinder.classList.contains('captured')) return;
+  if(!video.videoWidth || !video.videoHeight) return;
+  const rect = viewfinder.getBoundingClientRect();
+  if(rect.width < 10 || rect.height < 10) return;
+  rebuildGuideMaskIfNeeded(rect.width, rect.height);
+  if(!guideMaskAlpha){ setReadyUI(false); return; }
+
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const boxRatio = rect.width/rect.height, vRatio = vw/vh;
+  let sx,sy,sw,sh;
+  if(vRatio > boxRatio){ sh=vh; sw=vh*boxRatio; sy=0; sx=(vw-sw)/2; }
+  else { sw=vw; sh=vw/boxRatio; sx=0; sy=(vh-sh)/2; }
+  detectCtx.drawImage(video, sx, sy, sw, sh, 0, 0, DETECT_SAMPLE_W, detectSampleH);
+
+  const frame = detectCtx.getImageData(0,0,DETECT_SAMPLE_W,detectSampleH).data;
+  const n = DETECT_SAMPLE_W*detectSampleH;
+  const insideLuma = new Float32Array(n);
+  let sum=0, count=0;
+  for(let i=0;i<n;i++){
+    if(guideMaskAlpha[i]){
+      const o = i*4;
+      const luma = 0.299*frame[o] + 0.587*frame[o+1] + 0.114*frame[o+2];
+      insideLuma[i] = luma;
+      sum += luma; count++;
+    }
+  }
+  if(count < 10){ setReadyUI(false); return; }
+  const mean = sum/count;
+  let variance = 0;
+  for(let i=0;i<n;i++){ if(guideMaskAlpha[i]){ const d = insideLuma[i]-mean; variance += d*d; } }
+  variance /= count;
+  const stddev = Math.sqrt(variance);
+
+  let motion = 0;
+  if(prevInsideLuma){
+    let diffSum=0;
+    for(let i=0;i<n;i++){ if(guideMaskAlpha[i]) diffSum += Math.abs(insideLuma[i]-prevInsideLuma[i]); }
+    motion = diffSum/count;
+  }
+  prevInsideLuma = insideLuma;
+
+  const CONTENT_THRESHOLD = 14;
+  const MOTION_THRESHOLD = 6;
+  const goodContent = stddev > CONTENT_THRESHOLD;
+  const steady = motion < MOTION_THRESHOLD;
+  readyStreak = (goodContent && steady) ? readyStreak+1 : 0;
+  setReadyUI(readyStreak >= 2);
+}
+
+function debugReset(){ /* placeholder retained for structural parity with earlier builds */ }
+
+// ⚡ PERFORMANCE: was 280ms (~3.6 checks/sec). Bumped to 400ms (~2.5/sec) --
+// still fast enough that the green "ready" state feels responsive, but
+// meaningfully eases the sustained background CPU load from continuously
+// running real AI inference throughout the whole live-camera session,
+// which was very likely contributing to the general lag/sluggishness
+// reported alongside the black-screen issue.
+function startDetection(){ stopDetection(); detectTimer = setInterval(analyzeTick, 400); }
+function stopDetection(){
+  if(detectTimer){ clearInterval(detectTimer); detectTimer=null; }
+  readyStreak = 0; isReady = false;
+  guideMain.classList.remove('ready'); guideHalo.classList.remove('ready'); camHint.classList.remove('ready');
+}
+
+let tickCounter = 0;
+
+async function analyzeTick(){
+  // ⚠️ BUG FIX: this was missing at the very top -- every OTHER detection
+  // path (analyzeCattlePartFrame, analyzeFrame, analyzeCocoCowFrame, etc.)
+  // already checks viewfinder's 'captured' state before doing anything,
+  // but the Frame Quality Gate below was added ABOVE all of those and
+  // never had this same guard -- so brightness/blur/resolution checks,
+  // the hint text, and the live debug overlay kept running and updating
+  // against the LIVE camera feed even while a captured photo was being
+  // displayed/reviewed on screen. This is the actual cause of "keeps
+  // changing even after the image has been captured."
+  if(viewfinder.classList.contains('captured')) return;
+
+  tickCounter++;
+  const step = currentStep();
+
+  // FRAME QUALITY GATE -- runs before anything else, for every step type
+  // (including freeform/video steps, which previously had NO checks at
+  // all and were always instantly "ready"). A frame that fails here never
+  // reaches "ready", regardless of what any detection path below would
+  // otherwise find. Skipped only for the geotag step, which doesn't use
+  // the live camera at all -- it composites an existing photo.
+  if(!step.geotag){
+    const quality = assessBasicFrameQuality(video);
+    lastQualityReadout.brightness = quality.brightness !== undefined ? quality.brightness : null;
+    lastQualityReadout.sharpness = quality.sharpness !== undefined ? quality.sharpness : null;
+    lastQualityReadout.videoRes = video.videoWidth ? `${video.videoWidth}x${video.videoHeight}` : null;
+    if(!quality.ok){
+      lastQualityReadout.occupancy = null;
+      renderQualityDebug();
+      partBox.style.display = 'none';
+      partBox2.style.display = 'none';
+      partBox3.style.display = 'none';
+      camHint.classList.remove('ready');
+      camHintText.textContent = quality.reason;
+      lastMatchedBox = null;
+      return;  // don't burn a YOLO inference pass on a frame we already know is unusable
+    }
+    renderQualityDebug();
+  }
+
+  if(step.geotag){
+    // Derived step -- reuses the Flank photo, no live detection needed.
+    // Gate readiness on whether the source Flank photo actually exists yet.
+    partBox.style.display = 'none';
+    partBox2.style.display = 'none';
+    partBox3.style.display = 'none';
+    const sourceExists = !!findGeotagSourceCap(step);
+    if(sourceExists){
+      camHint.classList.add('ready');
+      camHintText.textContent = isGeneratingGeotag ? "Generating..." : step.hint;
+    } else {
+      camHint.classList.remove('ready');
+      camHintText.textContent = "Complete the Flank step first, then come back here";
+    }
+    return;
+  }
+  if(step.freeform || step.video){
+    // No model, no border -- e.g. Owner Photo, Scar/Injury, Video. Always
+    // "ready", no detection required, user just frames/records themselves.
+    partBox.style.display = 'none';
+    partBox2.style.display = 'none';
+    partBox3.style.display = 'none';
+    camHint.classList.add('ready');
+    let hintMsg = step.hint;
+    if(step.video && !audioAvailable){
+      hintMsg += " ⚠️ No microphone access — this recording will be SILENT";
+    }
+    camHintText.textContent = isRecording ? "" : hintMsg;
+    return;
+  }
+  const cfg = CATTLE_MODEL_CONFIG[step.id];
+  if(cfg && cfg.url){
+    // ⚠️ FIX: the primary model MUST finish before the secondary model starts.
+    // Running two onnxruntime-web sessions' .run() calls at the same time
+    // under the threaded WASM backend throws "Session already started" --
+    // that's the exact error you were seeing. Awaiting here serializes them.
+    await analyzeCattlePartFrame(step, cfg);
+    // secondary, informational-only model (e.g. horns/ear_tag shown alongside dead Head
+    // orientation) -- runs less often to keep phone performance reasonable, never affects
+    // the primary green "ready" state
+    const secCfg = step.secondaryModel ? SECONDARY_MODEL_CONFIG[step.id] : null;
+    if(secCfg && secCfg.url){
+      const every = secCfg.checkEveryNTicks || 3;
+      if(tickCounter % every === 0){ await analyzeSecondaryFrame(step, secCfg); }
+    } else {
+      partBox2.style.display = 'none';
+  partBox3.style.display = 'none';
+    }
+    return;
+  }
+  partBox2.style.display = 'none';
+  partBox3.style.display = 'none';
+  if(!step.sided && !step.border && COCO_MODEL_CONFIG.url){
+    // LIVE steps without a dedicated model yet -- fall back to general cow-presence
+    analyzeCocoCowFrame(step);
+    return;
+  }
+  if((step.domain === 'dead') && COCO_MODEL_CONFIG.url && (step.id === 'flank' || step.id === 'head')){
+    analyzeCocoCowFrame(step);
+    return;
+  }
+  partBox.style.display = 'none';
+  analyzeFrame();
+}
+
+// ---------- Real cattle-part detection (YOLOv8 ONNX models) ----------
+const cattleSessions = {};
+const cattleSessionLoading = {};
+const cattleLoadFailedAt = {};
+const MODEL_RETRY_COOLDOWN_MS = 8000;
+let cattleDetectBusy = false;
+
+async function loadCattleModel(stepId, cfg){
+  if(!cfg || !cfg.url) return null;
+  if(cattleSessions[stepId]) return cattleSessions[stepId];
+  if(cattleSessionLoading[stepId]) return null;
+  if(cattleLoadFailedAt[stepId] && (Date.now() - cattleLoadFailedAt[stepId]) < MODEL_RETRY_COOLDOWN_MS) return null;
+  cattleSessionLoading[stepId] = true;
+  camHintText.textContent = "Loading detection model…";
+  try{
+    await window.__ortReady;
+    const session = await ort.InferenceSession.create(cfg.url, { executionProviders: ['wasm'] });
+    cattleSessions[stepId] = session;
+    cattleLoadFailedAt[stepId] = 0;
+  }catch(err){
+    console.error(`Failed to load cattle model for "${stepId}":`, err);
+    camHintText.textContent = "Detection model failed to load — retrying shortly…";
+    cattleLoadFailedAt[stepId] = Date.now();
+  }
+  cattleSessionLoading[stepId] = false;
+  return cattleSessions[stepId] || null;
+}
+
+function letterboxImageSource(source, sw, sh, size){
+  const scale = Math.min(size/sw, size/sh);
+  const nw = Math.round(sw*scale), nh = Math.round(sh*scale);
+  const padX = Math.floor((size-nw)/2), padY = Math.floor((size-nh)/2);
+  const c = document.createElement('canvas'); c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#727272'; ctx.fillRect(0,0,size,size);
+  ctx.drawImage(source, 0,0,sw,sh, padX,padY,nw,nh);
+  return { canvas:c, scale, padX, padY };
+}
+function letterboxVideo(video, size){
+  return letterboxImageSource(video, video.videoWidth, video.videoHeight, size);
+}
+
+function canvasToCHWTensor(canvas){
+  const ctx = canvas.getContext('2d');
+  const { width, height } = canvas;
+  const imgData = ctx.getImageData(0,0,width,height).data;
+  const n = width*height;
+  const float32 = new Float32Array(n*3);
+  for(let i=0;i<n;i++){
+    float32[i]       = imgData[i*4]   / 255;
+    float32[n + i]   = imgData[i*4+1] / 255;
+    float32[2*n + i] = imgData[i*4+2] / 255;
+  }
+  return new ort.Tensor('float32', float32, [1,3,height,width]);
+}
+
+function nonMaxSuppression(boxes, scores, iouThreshold){
+  const idxs = scores.map((s,i)=>i).sort((a,b)=>scores[b]-scores[a]);
+  const keep = [];
+  const iou = (a,b) => {
+    const x1=Math.max(a[0],b[0]), y1=Math.max(a[1],b[1]);
+    const x2=Math.min(a[2],b[2]), y2=Math.min(a[3],b[3]);
+    const inter = Math.max(0,x2-x1)*Math.max(0,y2-y1);
+    const areaA=(a[2]-a[0])*(a[3]-a[1]), areaB=(b[2]-b[0])*(b[3]-b[1]);
+    return areaA+areaB-inter <= 0 ? 0 : inter/(areaA+areaB-inter);
+  };
+  while(idxs.length){
+    const cur = idxs.shift();
+    keep.push(cur);
+    for(let i=idxs.length-1;i>=0;i--){
+      if(iou(boxes[cur], boxes[idxs[i]]) > iouThreshold) idxs.splice(i,1);
+    }
+  }
+  return keep;
+}
+
+function decodeYoloOutput(output, scale, padX, padY, confThreshold, targetClassId){
+  const data = output.data;
+  const dims = output.dims;
+  const numAttrs = dims[1], numAnchors = dims[2];
+  const numClasses = numAttrs - 4;
+  const boxes = [], scores = [], classIds = [];
+  const restrictToClass = (targetClassId !== undefined && targetClassId !== null);
+  for(let i=0;i<numAnchors;i++){
+    let bestScore, bestClass;
+    if(restrictToClass){
+      bestScore = data[(4+targetClassId)*numAnchors + i];
+      bestClass = targetClassId;
+    } else {
+      bestScore = 0; bestClass = -1;
+      for(let c=0;c<numClasses;c++){
+        const s = data[(4+c)*numAnchors + i];
+        if(s > bestScore){ bestScore = s; bestClass = c; }
+      }
+    }
+    if(bestScore < confThreshold) continue;
+    const cx = data[0*numAnchors+i], cy = data[1*numAnchors+i];
+    const w  = data[2*numAnchors+i], h  = data[3*numAnchors+i];
+    boxes.push([(cx - w/2 - padX) / scale, (cy - h/2 - padY) / scale, (cx + w/2 - padX) / scale, (cy + h/2 - padY) / scale]);
+    scores.push(bestScore);
+    classIds.push(bestClass);
+  }
+  return { boxes, scores, classIds };
+}
+
+// NEW -- core dedicated-model detection logic, extracted from
+// analyzeCattlePartFrame below so the EXACT SAME detection (not a
+// reimplementation that could drift out of sync) can run against either
+// the live video feed (the periodic ready/not-ready check) OR a static
+// captured canvas (the post-capture re-verification added below). Pure
+// function -- no UI side effects, just returns what it found.
+async function detectCattlePartOnSource(step, cfg, source, sw, sh){
+  let session = cattleSessions[step.id];
+  if(!session){ session = await loadCattleModel(step.id, cfg); }
+  if(!session) return { session: false };
+
+  const { canvas, scale, padX, padY } = letterboxImageSource(source, sw, sh, cfg.inputSize);
+  const inputTensor = canvasToCHWTensor(canvas);
+  const feeds = {};
+  feeds[session.inputNames[0]] = inputTensor;
+  const results = await session.run(feeds);
+  const output = results[session.outputNames[0]];
+
+  const targetClassId = (cfg.onlyClassIndex !== undefined) ? cfg.onlyClassIndex : null;
+  const { boxes, scores, classIds } = decodeYoloOutput(output, scale, padX, padY, cfg.confThreshold, targetClassId);
+  const keep = nonMaxSuppression(boxes, scores, cfg.iouThreshold);
+
+  let matchIdx = null;
+  let wrongSideIdx = null;
+  if(step.sided){
+    const wantSide = stepSide[step.id];
+    for(const idx of keep){
+      const cname = (cfg.classNames[classIds[idx]] || "").toLowerCase();
+      if(cname.includes(wantSide)){
+        if(matchIdx === null || scores[idx] > scores[matchIdx]) matchIdx = idx;
+      } else {
+        if(wrongSideIdx === null || scores[idx] > scores[wrongSideIdx]) wrongSideIdx = idx;
+      }
+    }
+  } else if(keep.length > 0){
+    matchIdx = keep[0];
+  }
+
+  if(matchIdx === null){
+    return { session: true, matched: false, wrongSide: wrongSideIdx !== null };
+  }
+  const [x1,y1,x2,y2] = boxes[matchIdx];
+  const stepMaxOccupancy = (OCCUPANCY_BAND_CONFIG[step.id] || {}).max;
+  const stepMinOccupancy = (OCCUPANCY_BAND_CONFIG[step.id] || {}).min;
+  const boxCheck = assessBoxOccupancyAndTruncation(x1, y1, x2, y2, sw, sh, stepMaxOccupancy, stepMinOccupancy);
+  return {
+    session: true,
+    matched: true,
+    wrongSide: false,
+    box: { x1, y1, x2, y2 },
+    className: cfg.classNames[classIds[matchIdx]] || step.label,
+    score: scores[matchIdx],
+    boxCheck,
+  };
+}
+
+async function analyzeCattlePartFrame(step, cfg){
+  if(viewfinder.classList.contains('captured')) return;
+  if(cattleDetectBusy) return;
+  if(!video.videoWidth || !video.videoHeight) return;
+  cattleDetectBusy = true;
+  try{
+    // NEW -- now delegates to detectCattlePartOnSource (see its own
+    // comment above) instead of duplicating the inference/NMS/side-match
+    // logic inline. Behavior here is unchanged; this just guarantees the
+    // live check and the post-capture re-verification below can never
+    // drift out of sync with each other.
+    const det = await detectCattlePartOnSource(step, cfg, video, video.videoWidth, video.videoHeight);
+    if(!det.session){ cattleDetectBusy = false; return; }
+
+    if(det.matched){
+      const { x1, y1, x2, y2 } = det.box;
+      positionPartBox(x1,y1,x2,y2);
+      partBoxTag.textContent = `${det.className.toUpperCase()} ✓ ${(det.score*100).toFixed(0)}%`;
+      partBox.style.display = 'block';
+
+      // Occupancy + edge-truncation gate -- the part WAS detected, but
+      // that alone doesn't mean the photo is usable: a tiny distant
+      // detection or one cut off at the frame edge shouldn't read as
+      // "ready" just because the model found *something*. For head-
+      // related steps this doubles as the head-visibility check -- see
+      // the honesty note on FRAME_QUALITY_CONFIG above. The optional
+      // per-step max (Option B, rough distance control -- see
+      // OCCUPANCY_BAND_CONFIG's honesty note) stays null/disabled until
+      // field-tested; passing it here is a no-op for any step that
+      // hasn't had a real max set yet.
+      const boxCheck = det.boxCheck;
+      lastQualityReadout.occupancy = boxCheck.occupancy !== undefined ? boxCheck.occupancy : null;
+      renderQualityDebug();
+      if(boxCheck.ok){
+        camHint.classList.add('ready');
+        camHintText.textContent = "Detected — capture now";
+        // Remember this box so the shutter handler can normalize the
+        // captured photo's pixel size against it (Pixel-Size Normalization,
+        // see NORMALIZE_CONFIG below) -- only updated when the frame is
+        // actually in the "ready" state, so a stale/no-longer-valid box
+        // never gets used for a capture taken a moment later.
+        lastMatchedBox = { x1, y1, x2, y2 };
+        lastMatchedBoxVideoRes = { w: video.videoWidth, h: video.videoHeight };
+      } else {
+        camHint.classList.remove('ready');
+        camHintText.textContent = boxCheck.reason;
+        lastMatchedBox = null;
+      }
+    } else if(det.wrongSide){
+      // Model DID detect the animal, just the wrong side for the current
+      // toggle -- give a specific, helpful hint instead of a generic
+      // "not detected" message.
+      partBox.style.display = 'none';
+      camHint.classList.remove('ready');
+      camHintText.textContent = "That looks like the other side — switch the side toggle above or reposition";
+      lastMatchedBox = null;
+    } else {
+      partBox.style.display = 'none';
+      camHint.classList.remove('ready');
+      camHintText.textContent = step.hint;
+      lastMatchedBox = null;
+    }
+  }catch(err){
+    console.error("Cattle model inference error:", err);
+  }
+  cattleDetectBusy = false;
+}
+
+// =========================================================================
+// GALLERY UPLOAD VALIDATION -- runs the SAME dedicated model + same-side
+// matching logic used for live capture against an uploaded static image,
+// so gallery uploads can no longer bypass detection entirely (previously
+// ANY image was accepted regardless of content).
+// Only applies to steps that actually HAVE a dedicated trained model
+// (flank, head, ear_tag, flank_live, front_view_live, rear_view_live,
+// ear_tag_live). Steps without one (muzzle, muzzle_live -- no trained
+// model exists yet) and freeform/video/geotag/demo steps are intentionally
+// left unvalidated, same as they already work in live capture.
+// =========================================================================
+async function validateImageAgainstModel(imgEl, step, cfg){
+  let session = cattleSessions[step.id];
+  if(!session) session = await loadCattleModel(step.id, cfg);
+  if(!session) return { matched:false, wrongSide:false, error:'model-unavailable' };
+
+  const { canvas, scale, padX, padY } = letterboxImageSource(imgEl, imgEl.naturalWidth, imgEl.naturalHeight, cfg.inputSize);
+  const inputTensor = canvasToCHWTensor(canvas);
+  const feeds = {};
+  feeds[session.inputNames[0]] = inputTensor;
+  const results = await session.run(feeds);
+  const output = results[session.outputNames[0]];
+
+  const targetClassId = (cfg.onlyClassIndex !== undefined) ? cfg.onlyClassIndex : null;
+  const { boxes, scores, classIds } = decodeYoloOutput(output, scale, padX, padY, cfg.confThreshold, targetClassId);
+  const keep = nonMaxSuppression(boxes, scores, cfg.iouThreshold);
+
+  let matchIdx = null, wrongSideIdx = null;
+  if(step.sided){
+    const wantSide = stepSide[step.id];
+    for(const idx of keep){
+      const cname = (cfg.classNames[classIds[idx]] || "").toLowerCase();
+      if(cname.includes(wantSide)){
+        if(matchIdx === null || scores[idx] > scores[matchIdx]) matchIdx = idx;
+      } else {
+        if(wrongSideIdx === null || scores[idx] > scores[wrongSideIdx]) wrongSideIdx = idx;
+      }
+    }
+  } else if(keep.length > 0){
+    matchIdx = keep[0];
+  }
+
+  if(matchIdx !== null){
+    return { matched:true, wrongSide:false, className: cfg.classNames[classIds[matchIdx]], score: scores[matchIdx] };
+  }
+  return { matched:false, wrongSide: wrongSideIdx !== null };
+}
+
+function positionPartBox(x1, y1, x2, y2){
+  const rect = viewfinder.getBoundingClientRect();
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const boxRatio = rect.width/rect.height, vRatio = vw/vh;
+  let sx,sy,sw,sh;
+  if(vRatio > boxRatio){ sh=vh; sw=vh*boxRatio; sy=0; sx=(vw-sw)/2; }
+  else { sw=vw; sh=vw/boxRatio; sx=0; sy=(vh-sh)/2; }
+  const scaleX = rect.width/sw, scaleY = rect.height/sh;
+  partBox.style.left   = ((x1-sx)*scaleX) + "px";
+  partBox.style.top    = ((y1-sy)*scaleY) + "px";
+  partBox.style.width  = ((x2-x1)*scaleX) + "px";
+  partBox.style.height = ((y2-y1)*scaleY) + "px";
+}
+
+function positionSecondaryBox(el, x1, y1, x2, y2){
+  const rect = viewfinder.getBoundingClientRect();
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const boxRatio = rect.width/rect.height, vRatio = vw/vh;
+  let sx,sy,sw,sh;
+  if(vRatio > boxRatio){ sh=vh; sw=vh*boxRatio; sy=0; sx=(vw-sw)/2; }
+  else { sw=vw; sh=vw/boxRatio; sx=0; sy=(vh-sh)/2; }
+  const scaleX = rect.width/sw, scaleY = rect.height/sh;
+  el.style.left   = ((x1-sx)*scaleX) + "px";
+  el.style.top    = ((y1-sy)*scaleY) + "px";
+  el.style.width  = ((x2-x1)*scaleX) + "px";
+  el.style.height = ((y2-y1)*scaleY) + "px";
+}
+// Kept for compatibility with any other caller -- delegates to the generalized version.
+function positionPartBox2(x1, y1, x2, y2){ positionSecondaryBox(partBox2, x1, y1, x2, y2); }
+
+// ---------- Secondary model (e.g. horns/ear_tag layered onto dead Head step) ----------
+// Purely informational -- shown as a second, differently-colored box. Never sets the
+// green "ready" state (only the primary model, e.g. head_left/head_right, controls that).
+const secondarySessions = {};
+const secondarySessionLoading = {};
+const secondaryLoadFailedAt = {};
+let secondaryDetectBusy = false;
+
+async function loadSecondaryModel(stepId, cfg){
+  if(!cfg || !cfg.url) return null;
+  if(secondarySessions[stepId]) return secondarySessions[stepId];
+  if(secondarySessionLoading[stepId]) return null;
+  if(secondaryLoadFailedAt[stepId] && (Date.now() - secondaryLoadFailedAt[stepId]) < MODEL_RETRY_COOLDOWN_MS) return null;
+  secondarySessionLoading[stepId] = true;
+  try{
+    await window.__ortReady;
+    const session = await ort.InferenceSession.create(cfg.url, { executionProviders: ['wasm'] });
+    secondarySessions[stepId] = session;
+    secondaryLoadFailedAt[stepId] = 0;
+  }catch(err){
+    console.error(`Failed to load secondary model for "${stepId}":`, err);
+    secondaryLoadFailedAt[stepId] = Date.now();
+  }
+  secondarySessionLoading[stepId] = false;
+  return secondarySessions[stepId] || null;
+}
+
+async function analyzeSecondaryFrame(step, cfg){
+  if(viewfinder.classList.contains('captured')) return;
+  if(secondaryDetectBusy) return;
+  if(!video.videoWidth || !video.videoHeight) return;
+  secondaryDetectBusy = true;
+  try{
+    let session = secondarySessions[step.id];
+    if(!session){ session = await loadSecondaryModel(step.id, cfg); }
+    if(!session){ secondaryDetectBusy = false; return; }
+
+    const { canvas, scale, padX, padY } = letterboxVideo(video, cfg.inputSize);
+    const inputTensor = canvasToCHWTensor(canvas);
+    const feeds = {};
+    feeds[session.inputNames[0]] = inputTensor;
+    const results = await session.run(feeds);
+    const output = results[session.outputNames[0]];
+
+    const { boxes, scores, classIds } = decodeYoloOutput(output, scale, padX, padY, cfg.confThreshold, null);
+    const keep = nonMaxSuppression(boxes, scores, cfg.iouThreshold);
+
+    // ⚠️ FIX: previously only showed the single highest-scoring detection
+    // overall, so if BOTH ear_tag and horn were visible, only whichever
+    // scored higher got shown -- the other was silently dropped even
+    // though it was detected. Now: find the best detection for EACH
+    // class separately, so both can display at the same time.
+    // Class 0 (ear_tag) -> blue partBox2. Class 1 (horn) -> orange partBox3.
+    let bestByClass = {};   // classId -> index into boxes/scores with highest score for that class
+    for(const idx of keep){
+      const cid = classIds[idx];
+      if(bestByClass[cid] === undefined || scores[idx] > scores[bestByClass[cid]]) bestByClass[cid] = idx;
+    }
+
+    const eartagIdx = bestByClass[0];   // "ear_tag" is classNames[0]
+    const hornIdx   = bestByClass[1];   // "horn" is classNames[1]
+
+    if(eartagIdx !== undefined){
+      const [x1,y1,x2,y2] = boxes[eartagIdx];
+      positionSecondaryBox(partBox2, x1,y1,x2,y2);
+      partBox2Tag.textContent = `EAR TAG ✓ ${(scores[eartagIdx]*100).toFixed(0)}%`;
+      partBox2.style.display = 'block';
+    } else {
+      partBox2.style.display = 'none';
+    }
+
+    if(hornIdx !== undefined){
+      const [x1,y1,x2,y2] = boxes[hornIdx];
+      positionSecondaryBox(partBox3, x1,y1,x2,y2);
+      partBox3Tag.textContent = `HORN ✓ ${(scores[hornIdx]*100).toFixed(0)}%`;
+      partBox3.style.display = 'block';
+    } else {
+      partBox3.style.display = 'none';
+    }
+  }catch(err){
+    console.error("Secondary model inference error:", err);
+  }
+  secondaryDetectBusy = false;
+}
+
+// ---------- COCO cow-presence pre-filter ----------
+let cocoSession = null;
+let cocoSessionLoading = false;
+let cocoLoadFailedAt = 0;
+
+async function loadCocoModel(){
+  if(!COCO_MODEL_CONFIG.url || cocoSession || cocoSessionLoading) return cocoSession;
+  if(cocoLoadFailedAt && (Date.now() - cocoLoadFailedAt) < MODEL_RETRY_COOLDOWN_MS) return null;
+  cocoSessionLoading = true;
+  camHintText.textContent = "Loading cow detector…";
+  try{
+    await window.__ortReady;
+    cocoSession = await ort.InferenceSession.create(COCO_MODEL_CONFIG.url, { executionProviders: ['wasm'] });
+    cocoLoadFailedAt = 0;
+  }catch(err){
+    console.error("Failed to load COCO cow-detector model:", err);
+    camHintText.textContent = "Cow detector failed to load — retrying shortly…";
+    cocoLoadFailedAt = Date.now();
+  }
+  cocoSessionLoading = false;
+  return cocoSession;
+}
+
+async function analyzeCocoCowFrame(step){
+  if(viewfinder.classList.contains('captured')) return;
+  if(cattleDetectBusy) return;
+  if(!video.videoWidth || !video.videoHeight) return;
+  cattleDetectBusy = true;
+  try{
+    let session = cocoSession;
+    if(!session){ session = await loadCocoModel(); }
+    if(!session){ cattleDetectBusy = false; return; }
+    const cfg = COCO_MODEL_CONFIG;
+    const { canvas, scale, padX, padY } = letterboxVideo(video, cfg.inputSize);
+    const inputTensor = canvasToCHWTensor(canvas);
+    const feeds = {};
+    feeds[session.inputNames[0]] = inputTensor;
+    const results = await session.run(feeds);
+    const output = results[session.outputNames[0]];
+    const { boxes, scores } = decodeYoloOutput(output, scale, padX, padY, cfg.confThreshold, cfg.targetClassId);
+    const keep = nonMaxSuppression(boxes, scores, cfg.iouThreshold);
+    const frameArea = video.videoWidth * video.videoHeight;
+    let bestIdx = -1, bestScore = 0;
+    for(const idx of keep){
+      const [x1,y1,x2,y2] = boxes[idx];
+      const area = Math.max(0,x2-x1) * Math.max(0,y2-y1);
+      if(area/frameArea >= cfg.minAreaFraction && scores[idx] > bestScore){ bestScore = scores[idx]; bestIdx = idx; }
+    }
+    if(bestIdx >= 0){
+      const [x1,y1,x2,y2] = boxes[bestIdx];
+      positionPartBox(x1,y1,x2,y2);
+      partBoxTag.textContent = `COW ✓ ${(bestScore*100).toFixed(0)}%`;
+      partBox.style.display = 'block';
+      camHint.classList.add('ready');
+      camHintText.textContent = "Cow detected — align for " + step.label.toLowerCase();
+    } else {
+      partBox.style.display = 'none';
+      camHint.classList.remove('ready');
+      camHintText.textContent = step.hint;
+    }
+  }catch(err){ console.error("COCO cow-detector inference error:", err); }
+  cattleDetectBusy = false;
+}
+
+// ---------- Init ----------
+(async () => {
+  // TAB-LIFETIME CHECK, by request: restore on a refresh (same tab), but
+  // NOT after fully closing and reopening the tab. sessionStorage is the
+  // right tool for this specifically because -- unlike IndexedDB, which
+  // persists regardless -- the browser automatically clears sessionStorage
+  // the moment a tab actually closes, while keeping it intact across a
+  // same-tab refresh. That difference is exactly the signal needed here.
+  const isSameTabSession = sessionStorage.getItem('cattle_tab_active') === '1';
+  sessionStorage.setItem('cattle_tab_active', '1');
+  if(!isSameTabSession){
+    // Fresh tab (first-ever open, or reopened after being fully closed)
+    // -- don't restore old captures, and clear the stale IndexedDB
+    // session data now so it can't confuse a later refresh-restore.
+    // NEW -- Case Details used to ignore this same-tab-vs-fresh-tab rule
+    // entirely (it always loaded from localStorage regardless), which
+    // broke the deliberate "survives a refresh, not a real close" design
+    // above -- captures reset on a fresh tab, but details didn't,
+    // inconsistently. Cleared HERE, synchronously, BEFORE the await
+    // below -- a later <script> tag (cdLoad(), a separate block further
+    // down the file) can start running the moment this async IIFE hits
+    // its first await, so anything that needs to happen before that
+    // block reads localStorage has to complete before this line, not
+    // after it.
+    localStorage.removeItem('cattleClaimCaseDetails');
+    await clearSessionState();
+  }
+
+  const restored = isSameTabSession ? await restoreSessionState() : false;
+  if(restored){
+    // switchDomain() resets step/captures state, which we specifically
+    // don't want here -- update the mode-toggle UI directly instead to
+    // reflect the restored domain without disturbing anything else.
+    modeDeadBtn.classList.toggle('active', currentDomain === 'dead');
+    modeLiveBtn.classList.toggle('active', currentDomain === 'live');
+    brandSubtitle.textContent = currentDomain === 'dead'
+      ? "Dead Cattle — Guided Photo Capture"
+      : "Live Cattle — Guided Photo Capture";
+    selectStep(currentStepIdx); // also runs buildChips()/buildThumbs()/showCaptured() internally
+    recheckIncompleteCaptures(); // NEW -- see below: finishes any ELA/Tamper/Screenshot check that was killed mid-flight by the refresh
+  } else {
+    selectStep(0);
+  }
+  updateProgress();
+
+  // FIX: this used to be a separate, unsequenced call further down,
+  // racing against the restore work above. If the offline-queue retry
+  // finished FIRST (uploading successfully and removing itself from the
+  // queue) before `captures` had been repopulated by restoreSessionState(),
+  // the successful result had no in-memory capture object to attach to --
+  // it was silently dropped, leaving the stale pre-refresh "Queued"
+  // snapshot as the only thing ever saved. Running this only after the
+  // restore above has fully finished closes that race.
+  scheduleOfflineQueueRetries();
+})();
+
+// A refresh can happen WHILE the background ELA/Tamper Check/Screenshot
+// Check is still running for a just-captured photo -- that computation
+// lives only in the page's memory, so a refresh kills it mid-flight
+// before it's ever saved. Without this, a restored capture would show
+// "Not checked" forever, even though it was never actually skipped, just
+// interrupted. Re-runs the same check for anything that's missing it.
+async function recheckIncompleteCaptures(){
+  for(const [key, cap] of Object.entries(captures)){
+    if(cap.isVideo || cap.tamperVerdict || !cap.dataUrl) continue;
+    cap.tamperChecking = true;
+    try{
+      cap.elaDataUrl = await generateELA(cap.dataUrl);
+      cap.tamperVerdict = await computeTamperVerdict(cap.dataUrl);
+    }catch(err){
+      console.warn('Could not finish interrupted tamper check for', key, err);
+    }
+    cap.tamperChecking = false;
+    sendTamperCheckUpdate(cap); // NEW
+    saveSessionState(); // persist the now-completed result too, not just fix the display
+    if(captures[key] === cap && captureKey(currentStep()) === key){ showCaptured(cap); buildThumbs(); }
+  }
+}
+
+initTimeAnchor();   // NEW
+scheduleTimeAnchorRetries();   // NEW -- keep trying, never permanently give up
+ensureCase();       // NEW -- creates the backend case as soon as the app loads
+initGeolocation();
+startCamera();
+startDetection();
+
+document.getElementById('newCaseBtn').addEventListener('click', async () => {
+  if(!confirm('Start a brand new case? This clears everything captured so far in this session (already-uploaded photos stay safely on the server either way).')) return;
+  await clearSessionState();
+  caseId = null;
+  location.reload();
+});
+
+  const CD_FIELD_IDS = [
+    'cd_loanProposal','cd_farmerName','cd_village','cd_taluka','cd_district','cd_occupation',
+    'cd_insurerOrg','cd_remarks','cd_surveyDate','cd_address','cd_subCaseStatus',
+    'cd_animalType','cd_age','cd_gender','cd_breed','cd_tagNo','cd_marketValue','cd_color',
+    'cd_swishOfTail','cd_rightHorn','cd_leftHorn','cd_lactation','cd_dailyMilk',
+    'cd_distinguishingFeature','cd_sumInsured','cd_policyDuration','cd_premiumAmt'
+  ];
+  const CD_STORAGE_KEY = 'cattleClaimCaseDetails';
+
+  // ⚠️ FIX, found via real testing: Case Details used to ONLY save to
+  // localStorage -- never reached the server at all, despite api/cases.py
+  // already having a PUT endpoint built for exactly this. That meant
+  // details lived in one browser's local storage only: gone on a cache
+  // clear (which happened more than once during testing today), never
+  // visible from another device, and never part of the actual exported
+  // case record. This maps the client's camelCase field ids to the
+  // server's snake_case column names so the same data can go both places
+  // -- localStorage stays as an instant-load/offline cache, the server
+  // becomes the real source of truth once reachable.
+  const CD_FIELD_TO_SERVER_KEY = {
+    cd_loanProposal: 'loan_no', cd_farmerName: 'farmer_name', cd_village: 'village',
+    cd_taluka: 'taluka', cd_district: 'district', cd_occupation: 'occupation',
+    cd_insurerOrg: 'insurer_org', cd_remarks: 'remarks', cd_surveyDate: 'survey_date',
+    cd_address: 'address', cd_subCaseStatus: 'sub_case_status', cd_animalType: 'animal_type',
+    cd_age: 'age', cd_gender: 'gender', cd_breed: 'breed', cd_tagNo: 'tag_no',
+    cd_marketValue: 'market_value', cd_color: 'color', cd_swishOfTail: 'swish_of_tail',
+    cd_rightHorn: 'right_horn', cd_leftHorn: 'left_horn', cd_lactation: 'lactation',
+    cd_dailyMilk: 'daily_milk', cd_distinguishingFeature: 'distinguishing_feature',
+    cd_sumInsured: 'sum_insured', cd_policyDuration: 'policy_duration', cd_premiumAmt: 'premium_amt',
+  };
+
+  function cdGetAll(){
+    const out = {};
+    CD_FIELD_IDS.forEach(id => { out[id] = document.getElementById(id).value.trim(); });
+    return out;
+  }
+  function cdIsFilled(){
+    const v = cdGetAll();
+    return !!(v.cd_farmerName && v.cd_tagNo);
+  }
+  function cdUpdateDot(){
+    document.getElementById('caseDetailsBtnDot').classList.toggle('filled', cdIsFilled());
+  }
+  function cdLoad(){
+    // Instant local load only -- fast, synchronous, always available even
+    // before the main app has finished restoring its session. Server data
+    // (if any, and if reachable) takes over via cdSyncFromServer below,
+    // called separately once the panel is actually opened.
+    try{
+      const saved = JSON.parse(localStorage.getItem(CD_STORAGE_KEY) || '{}');
+      CD_FIELD_IDS.forEach(id => { if(saved[id] !== undefined) document.getElementById(id).value = saved[id]; });
+    }catch(e){ console.warn('Could not load saved case details:', e); }
+    cdUpdateDot();
+  }
+  // NEW -- fetches this case's details from the server and, if it has any
+  // actual data, uses it to fill/override the form. Called when the panel
+  // opens (see caseDetailsBtn's handler below) rather than at page-load
+  // time, specifically because `caseId` (a global from the main app
+  // script) may not have been restored from IndexedDB yet that early --
+  // by the time someone actually opens this panel, the app has had time
+  // to finish that. Safe to fail silently (offline, case not created
+  // yet, etc.) -- the local values loaded by cdLoad() above just stay as
+  // they are.
+  async function cdSyncFromServer(){
+    if(typeof caseId === 'undefined' || !caseId) return;
+    try{
+      const data = await fetchWithTimeout_(`/api/cases/${caseId}`, 6000);
+      if(!data || !data.case) return;
+      const serverCase = data.case;
+      let gotAny = false;
+      CD_FIELD_IDS.forEach(id => {
+        const serverKey = CD_FIELD_TO_SERVER_KEY[id];
+        const val = serverCase[serverKey];
+        if(val){ document.getElementById(id).value = val; gotAny = true; }
+      });
+      if(gotAny){
+        localStorage.setItem(CD_STORAGE_KEY, JSON.stringify(cdGetAll()));  // keep local cache current too
+        cdUpdateDot();
+      }
+    }catch(err){
+      console.warn('Could not sync case details from server (using local copy):', err);
+    }
+  }
+  async function cdSave(){
+    const data = cdGetAll();
+    localStorage.setItem(CD_STORAGE_KEY, JSON.stringify(data));  // always keep the instant local copy current
+    cdUpdateDot();
+    const status = document.getElementById('cdStatus');
+    status.textContent = 'Saving…';
+    try{
+      const id = (typeof ensureCase === 'function') ? await ensureCase() : null;
+      if(!id) throw new Error('No case available to save details to');
+      const formData = new FormData();
+      CD_FIELD_IDS.forEach(fieldId => {
+        formData.append(CD_FIELD_TO_SERVER_KEY[fieldId], data[fieldId] || '');
+      });
+      const resp = await fetchWithTimeoutPut_(`/api/cases/${id}`, formData);
+      if(!resp.ok) throw new Error(`Server returned ${resp.status}`);
+      status.textContent = 'Saved.';
+    }catch(err){
+      console.warn('Could not save case details to server (kept locally, will retry next save):', err);
+      status.textContent = 'Saved locally — will sync once online.';
+    }
+    setTimeout(() => { status.textContent = ''; }, 2500);
+  }
+  window.getCaseDetails = cdGetAll;
+
+  document.getElementById('caseDetailsBtn').addEventListener('click', () => {
+    document.getElementById('caseDetailsPanel').classList.add('show');
+    cdSyncFromServer();  // NEW -- pick up any server-side data (another device/session) each time the panel opens
+  });
+  document.getElementById('cdCloseBtn').addEventListener('click', () => {
+    document.getElementById('caseDetailsPanel').classList.remove('show');
+  });
+  document.getElementById('cdSaveBtn').addEventListener('click', cdSave);
+
+  cdLoad();
+
+  if ('serviceWorker' in navigator) {
+    // Fires once a NEW service worker has taken over control of this page
+    // (i.e. an update was found, installed, and activated). Reload once to
+    // pull in the fresh index.html/JS that goes with it -- otherwise the
+    // already-open page would keep running its old in-memory code even
+    // though the worker underneath it just updated.
+    let refreshingAfterUpdate = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshingAfterUpdate) return;   // guard against a reload loop
+      refreshingAfterUpdate = true;
+      window.location.reload();
+    });
+
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
+        console.log('[app] Service worker registered, scope:', reg.scope);
+
+        // Re-check for a newer sw.js every time the app comes back to the
+        // foreground -- covers a farmer switching back to an already-open
+        // tab rather than fully closing and reopening it. If offline, this
+        // fails silently and harmlessly, same as every other network call
+        // in this app.
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            reg.update().catch(() => {});
+          }
+        });
+
+        // Backup: also re-check periodically while the app stays open and
+        // in the foreground for a long stretch, so a long single session
+        // still eventually picks up a newer version without needing to be
+        // backgrounded and re-foregrounded first.
+        setInterval(() => {
+          if (document.visibilityState === 'visible') {
+            reg.update().catch(() => {});
+          }
+        }, 5 * 60 * 1000);   // every 5 minutes
+      }).catch((err) => {
+        console.warn('[app] Service worker registration failed (offline support unavailable):', err);
+      });
+    });
+  }

@@ -25,6 +25,8 @@ from datetime import datetime, timedelta
 import piexif
 from PIL import Image
 
+TIMEZONE_MISMATCH_TOLERANCE_HOURS = 2.5  # same tolerance used in captures.py -- named here instead of hardcoded
+
 # Filenames/tools that indicate the image passed through an editor rather
 # than coming straight from a camera.
 KNOWN_EDITOR_SOFTWARE = [
@@ -340,7 +342,7 @@ def analyze_gallery_exif(image_bytes, server_received_at=None, file_last_modifie
             signals["info"]["gps_utc_time"] = gps_dt.isoformat()
             signals["info"]["actual_offset_hours"] = round(actual_offset_hours, 2)
             signals["info"]["expected_offset_hours_estimate"] = expected_offset_hours
-            if mismatch > 2.5:
+            if mismatch > TIMEZONE_MISMATCH_TOLERANCE_HOURS:
                 signals["flags"].append({
                     "signal": "gps_time_offset_mismatch",
                     "weight": "High",

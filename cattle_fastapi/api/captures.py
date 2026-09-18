@@ -15,22 +15,17 @@ from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks
 from services.db import get_conn
 from services.exif_service import analyze_gallery_exif
 from services.eartag_ocr_service import run_ocr_and_store  # NEW -- server-side ear tag digit OCR, now background-only (see note below)
-from services.organize import compute_capture_flags, organize_case  # NEW -- shared flag logic + auto-organize
+from services.organize import (
+    compute_capture_flags,
+    organize_case,
+    CLOCK_DRIFT_THRESHOLD_MS,
+    CAPTURE_UPLOAD_GAP_THRESHOLD_MS,
+    ANCHOR_NTP_DRIFT_THRESHOLD_MS,
+    UPLOADS_DIR,
+    TIMEZONE_MISMATCH_TOLERANCE_HOURS,
+)  # constants defined once in services/organize.py, imported here to avoid duplication
 
 router = APIRouter(prefix="/api/captures", tags=["captures"])
-
-UPLOAD_DIR = "uploads"
-
-# Rule Engine sheet has TWO SEPARATE checks that both use the same raw
-# "server_received_at minus device_timestamp" number, but mean very
-# different things -- conflating them was a real bug (caught while
-# reviewing Matrix scenario #12): a genuine offline-queued upload from a
-# few hours ago would otherwise get flagged identically to actual clock
-# tampering, which is exactly the false-positive trap #12 warns about.
-CLOCK_DRIFT_THRESHOLD_MS = 120_000        # "Device clock vs server time drift" -- ordinary skew
-CAPTURE_UPLOAD_GAP_THRESHOLD_MS = 72 * 60 * 60 * 1000  # "Capture-to-upload gap" -- 72h, normal for field staff
-ANCHOR_NTP_DRIFT_THRESHOLD_MS = 120_000   # "Device clock vs GNSS/NTP UTC drift" -- Rule Engine's OTHER 120s check,
-                                           # measured at the moment the time-anchor was established, not since
 
 
 @router.post("/upload")
@@ -71,7 +66,7 @@ async def upload_capture(
 
     ext = os.path.splitext(file.filename or "")[1] or ".jpg"
     stored_name = f"{uuid.uuid4().hex}{ext}"
-    dest_path = os.path.join(UPLOAD_DIR, stored_name)
+    dest_path = os.path.join(UPLOADS_DIR, stored_name)
 
     contents = await file.read()
     with open(dest_path, "wb") as f:
@@ -116,7 +111,6 @@ async def upload_capture(
     # timezone edges (same caveat as the Gallery EXIF offset check).
     # Soft flag only, per the Matrix sheet: a wrong-but-consistent offset
     # is usually just an honest traveller, not tampering.
-    TIMEZONE_MISMATCH_TOLERANCE_HOURS = 2.5
     timezone_mismatch_flag = None
     if device_timezone and lat is not None and lon is not None:
         try:

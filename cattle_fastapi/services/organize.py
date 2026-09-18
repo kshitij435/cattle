@@ -28,6 +28,7 @@ OUTPUT_DIR = "organized_exports"
 CLOCK_DRIFT_THRESHOLD_MS = 120_000
 CAPTURE_UPLOAD_GAP_THRESHOLD_MS = 72 * 60 * 60 * 1000
 ANCHOR_NTP_DRIFT_THRESHOLD_MS = 120_000
+TIMEZONE_MISMATCH_TOLERANCE_HOURS = 2.5  # same tolerance used in captures.py and exif_service.py -- single definition here
 
 
 def _format_ist(timestamp_str):
@@ -285,6 +286,7 @@ def _write_readable_summary(case_dir, case_row, captures):
                 warnings.append(f"{len(high)} HIGH-WEIGHT EXIF FLAG(S)")
         if flags.get("ocr_signals") and flags["ocr_signals"].get("needs_review"):
             warnings.append("EAR TAG OCR NEEDS REVIEW (low confidence or unexpected format)")
+
 
         lines.append(f"  Warnings:        {', '.join(warnings) if warnings else 'None'}")
         lines.append("")

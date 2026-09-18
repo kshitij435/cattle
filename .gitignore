@@ -1,7 +1,9 @@
 cattle_fastapi/uploads/
 cattle_fastapi/organized_exports/
 cattle_fastapi/cattle_claims.db
+cattle_fastapi/cattle_claims.db-wal
+cattle_fastapi/cattle_claims.db-shm
 cattle_fastapi/__pycache__/
 cattle_fastapi/**/__pycache__/
+cattle_fastapi/cloudflared.exe
 *.pyc
-cloudflared.exe
